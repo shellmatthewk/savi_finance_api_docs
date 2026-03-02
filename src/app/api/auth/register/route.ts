@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'crypto';
 import { createUser, getUserByEmail } from '@/db/queries/users';
 import { upsertSubscription } from '@/db/queries/subscriptions';
 import { createApiKey } from '@/db/queries/api-keys';
+import { signJWT, setSessionCookie } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +97,10 @@ export async function POST(request: Request): Promise<NextResponse<RegisterRespo
       keyHash,
       label: 'Default Key',
     });
+
+    // Sign JWT and set session cookie (auto-login after registration)
+    const token = await signJWT({ userId: user.id, plan: 'sandbox' });
+    await setSessionCookie(token);
 
     return NextResponse.json({
       userId: user.id,
