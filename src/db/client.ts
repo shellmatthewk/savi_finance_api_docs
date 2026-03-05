@@ -1,12 +1,15 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 
 /**
  * Database client singleton
  *
- * Uses node-postgres (pg) with Drizzle ORM for type-safe database access.
- * The client is created lazily to avoid errors during build time.
+ * Uses Neon serverless driver with WebSocket transport (works over port 443,
+ * bypassing firewalls that block port 5432).
  */
+
+neonConfig.webSocketConstructor = ws;
 
 let pool: Pool | null = null;
 
@@ -20,13 +23,7 @@ function getPool(): Pool {
       );
     }
 
-    pool = new Pool({
-      connectionString,
-      // Connection pool settings optimized for serverless
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
+    pool = new Pool({ connectionString });
   }
 
   return pool;
@@ -34,7 +31,6 @@ function getPool(): Pool {
 
 /**
  * Drizzle database client
- * Import schema when available: import * as schema from './schema';
  */
 export function getDb() {
   return drizzle(getPool());

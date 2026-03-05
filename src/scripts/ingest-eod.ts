@@ -70,8 +70,8 @@ async function fetchFiatRates(): Promise<RateData[]> {
   const rates: RateData[] = [];
 
   try {
-    // Using exchangerate.host free API
-    const url = `https://api.exchangerate.host/latest?base=USD&symbols=${symbols.join(',')}`;
+    // Using Frankfurter free API (ECB data, no key required)
+    const url = `https://api.frankfurter.app/latest?from=USD&to=${symbols.join(',')}`;
     const response = await fetchWithTimeout(url);
     const data = await response.json();
 
@@ -157,34 +157,34 @@ async function fetchStockRates(): Promise<RateData[]> {
   const today = getToday();
   const symbols = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'META', 'NVDA', 'TSLA', 'JPM', 'V', 'WMT'];
   const rates: RateData[] = [];
-  const apiKey = process.env.FINANCIAL_DATA_API_KEY;
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
 
   if (!apiKey) {
-    console.warn('FINANCIAL_DATA_API_KEY not set, skipping stock data ingestion');
+    console.warn('ALPHA_VANTAGE_API_KEY not set, skipping stock data ingestion');
     return rates;
   }
 
-  try {
-    // Using Financial Modeling Prep batch quote API
-    const url = `https://financialmodelingprep.com/api/v3/quote/${symbols.join(',')}?apikey=${apiKey}`;
-    const response = await fetchWithTimeout(url);
-    const data = await response.json();
+  for (const symbol of symbols) {
+    try {
+      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
+      const response = await fetchWithTimeout(url);
+      const data = await response.json();
+      const quote = data['Global Quote'];
 
-    if (Array.isArray(data)) {
-      for (const stock of data) {
-        if (stock.symbol && stock.price) {
-          rates.push({
-            assetClass: 'stocks',
-            symbol: stock.symbol,
-            rate: String(stock.price),
-            baseCurrency: 'USD',
-            recordedDate: today,
-          });
-        }
+      if (quote && quote['05. price']) {
+        rates.push({
+          assetClass: 'stocks',
+          symbol,
+          rate: quote['05. price'],
+          baseCurrency: 'USD',
+          recordedDate: today,
+        });
       }
+    } catch (error) {
+      console.error(`Failed to fetch stock rate for ${symbol}:`, error);
     }
-  } catch (error) {
-    console.error('Failed to fetch stock rates:', error);
+    // Respect Alpha Vantage free tier limit of 5 requests/minute
+    await new Promise(resolve => setTimeout(resolve, 12000));
   }
 
   return rates;
@@ -197,60 +197,41 @@ async function fetchStockRates(): Promise<RateData[]> {
 async function fetchMetalRates(): Promise<RateData[]> {
   const today = getToday();
   const rates: RateData[] = [];
-  const apiKey = process.env.FINANCIAL_DATA_API_KEY;
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
 
-  // Metals pricing typically requires paid API access
-  // For MVP, we can use a metals API or fall back to hardcoded recent values
   if (!apiKey) {
-    console.warn('FINANCIAL_DATA_API_KEY not set, using fallback metal rates');
-    // Fallback with approximate recent market rates
-    const fallbackRates = [
-      { symbol: 'XAU/USD', rate: '2340.50' }, // Gold
-      { symbol: 'XAG/USD', rate: '27.45' }, // Silver
-      { symbol: 'XPT/USD', rate: '985.00' }, // Platinum
-      { symbol: 'XPD/USD', rate: '1025.00' }, // Palladium
-    ];
-
-    for (const metal of fallbackRates) {
-      rates.push({
-        assetClass: 'metals',
-        ...metal,
-        baseCurrency: 'USD',
-        recordedDate: today,
-      });
-    }
+    console.warn('ALPHA_VANTAGE_API_KEY not set, skipping metal data ingestion');
     return rates;
   }
 
-  try {
-    // Using Financial Modeling Prep commodities endpoint
-    const url = `https://financialmodelingprep.com/api/v3/quote/GCUSD,SIUSD,PLUSD,PAUSD?apikey=${apiKey}`;
-    const response = await fetchWithTimeout(url);
-    const data = await response.json();
+  const metalSymbols: Record<string, string> = {
+    XAUUSD: 'XAU/USD',
+    XAGUSD: 'XAG/USD',
+    XPTUSD: 'XPT/USD',
+    XPDUSD: 'XPD/USD',
+  };
 
-    const symbolMap: Record<string, string> = {
-      GCUSD: 'XAU/USD',
-      SIUSD: 'XAG/USD',
-      PLUSD: 'XPT/USD',
-      PAUSD: 'XPD/USD',
-    };
+  for (const [avSymbol, ourSymbol] of Object.entries(metalSymbols)) {
+    try {
+      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${avSymbol}&apikey=${apiKey}`;
+      const response = await fetchWithTimeout(url);
+      const data = await response.json();
+      const quote = data['Global Quote'];
 
-    if (Array.isArray(data)) {
-      for (const commodity of data) {
-        const symbol = symbolMap[commodity.symbol];
-        if (symbol && commodity.price) {
-          rates.push({
-            assetClass: 'metals',
-            symbol,
-            rate: String(commodity.price),
-            baseCurrency: 'USD',
-            recordedDate: today,
-          });
-        }
+      if (quote && quote['05. price']) {
+        rates.push({
+          assetClass: 'metals',
+          symbol: ourSymbol,
+          rate: quote['05. price'],
+          baseCurrency: 'USD',
+          recordedDate: today,
+        });
       }
+    } catch (error) {
+      console.error(`Failed to fetch metal rate for ${avSymbol}:`, error);
     }
-  } catch (error) {
-    console.error('Failed to fetch metal rates:', error);
+    // Respect Alpha Vantage free tier limit of 5 requests/minute
+    await new Promise(resolve => setTimeout(resolve, 12000));
   }
 
   return rates;

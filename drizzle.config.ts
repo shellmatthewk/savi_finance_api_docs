@@ -12,7 +12,7 @@ export default defineConfig({
 
   // Database connection configuration
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    url: process.env.DIRECT_URL ?? process.env.DATABASE_URL!,
   },
 
   // Enable verbose logging during migrations
