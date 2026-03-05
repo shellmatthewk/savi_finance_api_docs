@@ -109,6 +109,64 @@ VaultLine is a unified financial data API that provides end-of-day (EOD) exchang
 
 ---
 
+## Quick Start (Client Libraries)
+
+### Python
+
+```bash
+pip install requests
+```
+
+```python
+from vaultline import VaultLine
+
+client = VaultLine('vl_your_api_key')
+
+# Get current rates
+rates = client.get_rates(['BTC/USD', 'ETH/USD', 'AAPL'])
+for rate in rates['data']:
+    print(f"{rate['symbol']}: {rate['rate']}")
+
+# Get historical data
+history = client.get_history('BTC/USD', '2024-01-01', '2024-01-31')
+print(f"{len(history['history'])} data points")
+
+# Check rate limit
+print(f"API calls remaining: {client.rate_limit.remaining}")
+```
+
+### JavaScript / Node.js
+
+```javascript
+const VaultLine = require('./vaultline');
+
+const client = new VaultLine('vl_your_api_key');
+
+// Get current rates
+const { data: rates } = await client.getRates(['BTC/USD', 'ETH/USD']);
+console.log(rates);
+
+// Get historical data
+const { data: history } = await client.getHistory('BTC/USD', '2024-01-01', '2024-01-31');
+console.log(history.history.length, 'data points');
+```
+
+### cURL
+
+```bash
+# Get rates
+curl -H "Authorization: Bearer vl_your_api_key" \
+  "https://api.vaultline.io/api/v1/rates?symbols=BTC/USD,ETH/USD"
+
+# Get history
+curl -H "Authorization: Bearer vl_your_api_key" \
+  "https://api.vaultline.io/api/v1/rates/history?symbol=BTC/USD&from=2024-01-01&to=2024-01-31"
+```
+
+See [`examples/`](./examples/) for full client implementations.
+
+---
+
 ## Plans
 
 | | Sandbox | Standard |
