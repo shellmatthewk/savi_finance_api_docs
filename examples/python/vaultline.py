@@ -108,6 +108,8 @@ class VaultLine:
 
 # Example usage
 if __name__ == "__main__":
+    from datetime import datetime, timedelta
+
     client = VaultLine("vl_your_api_key_here")
 
     # Get all available assets
@@ -125,6 +127,8 @@ if __name__ == "__main__":
 
     print(f"API calls remaining: {client.rate_limit.remaining}")
 
-    # Get historical data
-    history = client.get_history("BTC/USD", "2024-01-01", "2024-01-31")
+    # Get historical data (last 30 days)
+    to_date = datetime.now().strftime("%Y-%m-%d")
+    from_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    history = client.get_history("BTC/USD", from_date, to_date)
     print(f"History points: {len(history['history'])}")
