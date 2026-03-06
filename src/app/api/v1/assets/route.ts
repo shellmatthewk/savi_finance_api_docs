@@ -103,9 +103,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (error instanceof NextResponse) {
       return error;
     }
-    console.error('Assets API error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('Assets API error:', errorMessage, errorStack);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: errorMessage },
       { status: 500 }
     );
   }

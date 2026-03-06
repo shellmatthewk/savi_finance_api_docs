@@ -135,9 +135,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (error instanceof NextResponse) {
       return error;
     }
-    console.error('Rates API error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Rates API error:', errorMessage);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: errorMessage },
       { status: 500 }
     );
   }
