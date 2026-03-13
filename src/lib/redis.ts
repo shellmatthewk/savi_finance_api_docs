@@ -10,15 +10,21 @@ import { Redis } from '@upstash/redis';
 
 let redis: Redis | null = null;
 
-export function getRedis(): Redis {
+/**
+ * Check if Redis is configured
+ */
+export function isRedisConfigured(): boolean {
+  return !!(process.env.REDIS_URL && process.env.REDIS_TOKEN);
+}
+
+export function getRedis(): Redis | null {
   if (!redis) {
     const url = process.env.REDIS_URL;
     const token = process.env.REDIS_TOKEN;
 
     if (!url || !token) {
-      throw new Error(
-        'Redis configuration missing. Please set REDIS_URL and REDIS_TOKEN environment variables.'
-      );
+      // Redis not configured - return null for local dev
+      return null;
     }
 
     redis = new Redis({
@@ -36,6 +42,7 @@ export function getRedis(): Redis {
 export async function pingRedis(): Promise<boolean> {
   try {
     const client = getRedis();
+    if (!client) return false;
     const result = await client.ping();
     return result === 'PONG';
   } catch {
