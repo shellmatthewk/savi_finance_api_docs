@@ -122,7 +122,6 @@ function RegisterForm() {
         </CardHeader>
 
         <CardContent>
-          {/*
           <div className="space-y-4">
             <a
               href="/api/auth/google"
@@ -158,7 +157,7 @@ function RegisterForm() {
               </div>
             </div>
           </div>
-          */}
+
           <form onSubmit={handleSubmit} className="space-y-4 mt-4">
             {errors.general && (
               <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
