@@ -53,7 +53,9 @@ export default function LoginPage() {
         </CardHeader>
 
         <CardContent>
+          {/* 
           <div className="space-y-4">
+            
             <a
               href="/api/auth/google"
               className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg border border-border hover:bg-card transition text-sm font-medium"
@@ -88,7 +90,7 @@ export default function LoginPage() {
               </div>
             </div>
           </div>
-
+          */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
