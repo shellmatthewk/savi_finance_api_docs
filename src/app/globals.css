@@ -24,9 +24,38 @@
   scroll-behavior: smooth;
 }
 
+/* Dark theme (default) */
+:root, .dark {
+  --bg: #09090b;
+  --fg: #fafafa;
+  --muted: #a1a1aa;
+  --border: #27272a;
+  --card: #18181b;
+  --card-hover: #1f1f23;
+  --glass-bg: rgba(24, 24, 27, 0.6);
+  --glass-border: rgba(63, 63, 70, 0.3);
+  --code-bg: #0c0c0f;
+  --grid-color: rgba(109, 90, 237, 0.03);
+}
+
+/* Light theme */
+.light {
+  --bg: #fafafa;
+  --fg: #09090b;
+  --muted: #71717a;
+  --border: #e4e4e7;
+  --card: #ffffff;
+  --card-hover: #f4f4f5;
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(228, 228, 231, 0.6);
+  --code-bg: #f4f4f5;
+  --grid-color: rgba(109, 90, 237, 0.06);
+}
+
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+  background: var(--bg);
+  color: var(--fg);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 ::selection {
@@ -102,21 +131,34 @@ body {
 }
 
 .glass {
-  background: rgba(24, 24, 27, 0.6);
+  background: var(--glass-bg);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(63, 63, 70, 0.3);
+  border: 1px solid var(--glass-border);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .code-block {
-  background: #0c0c0f;
-  border: 1px solid #27272a;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
   border-radius: 12px;
   font-family: var(--font-mono);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .grid-bg {
-  background-image: 
-    linear-gradient(rgba(109, 90, 237, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(109, 90, 237, 0.03) 1px, transparent 1px);
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 60px 60px;
 }
+
+/* Override Tailwind colors with CSS variables for theme support */
+.bg-background { background-color: var(--bg) !important; }
+.text-foreground { color: var(--fg) !important; }
+.text-muted { color: var(--muted) !important; }
+.border-border { border-color: var(--border) !important; }
+.bg-card { background-color: var(--card) !important; }
+.hover\:bg-card:hover { background-color: var(--card) !important; }
+.bg-card\/30 { background-color: color-mix(in srgb, var(--card) 30%, transparent) !important; }
+.bg-card\/50 { background-color: color-mix(in srgb, var(--card) 50%, transparent) !important; }
+.bg-card\/80 { background-color: color-mix(in srgb, var(--card) 80%, transparent) !important; }
