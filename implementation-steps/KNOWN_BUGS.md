@@ -216,6 +216,40 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 08: Graceful Degradation
+
+### Bug: Race Condition in Half-Open State (High)
+**File:** `src/lib/resilientData.ts` (lines 102-115)
+**Issue:** Multiple concurrent requests can all transition circuit to half-open and all pass through. Standard pattern should allow only ONE test request.
+**Impact:** Circuit breaker doesn't properly limit load during recovery testing
+**Fix:** Add `halfOpenInFlight` flag to track if a probe request is in progress.
+
+### Bug: Half-Open Failure Doesn't Re-Open Circuit (High)
+**File:** `src/lib/resilientData.ts` (recordServiceFailure function)
+**Issue:** Failure in half-open state increments counter but doesn't re-open circuit (needs 5 failures). Should immediately re-open.
+**Impact:** Circuit stays half-open allowing 4 more failures before protection kicks in
+**Fix:** Add `if (breaker.state === 'half-open') breaker.state = 'open'` to failure handler.
+
+### Bug: Stale Fallback Condition Uses Stale State
+**File:** `src/lib/resilientData.ts` (line 207)
+**Issue:** Condition `!serviceHealth.database && serviceHealth.redis` uses `serviceHealth.redis` which may have been set to false earlier in the same request.
+**Impact:** Stale fallback skipped even when Redis might be available
+**Fix:** Use `!isCircuitOpen('redis')` instead of `serviceHealth.redis`.
+
+### Issue: Redundant Health Pings on Every Request
+**File:** `src/lib/resilientData.ts`
+**Issue:** `checkRedisHealth()` and `checkDatabaseHealth()` ping services on every request even when circuit is closed.
+**Impact:** Added latency, wasted resources
+**Fix:** Trust circuit breaker state; only ping when transitioning to half-open.
+
+### Gap: Health Endpoint Doesn't Update Circuit State
+**File:** `src/lib/resilientData.ts` (checkRedisHealth, checkDatabaseHealth)
+**Issue:** Health check failures update `serviceHealth` but don't call `recordServiceFailure()`.
+**Impact:** Repeated health check failures don't open circuit
+**Fix:** Call `recordServiceFailure()` when health checks fail.
+
+---
+
 ## Legend
 
 | Severity | Description |
