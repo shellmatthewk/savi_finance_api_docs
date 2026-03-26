@@ -6,7 +6,6 @@ import { logUsage } from '@/db/queries/usage';
 import {
   getFromCache,
   setInCache,
-  ratesCacheKey,
   incrementCacheHit,
   incrementCacheMiss,
 } from '@/lib/cache';
@@ -17,7 +16,8 @@ import {
   canTriangulate,
 } from '@/lib/triangulation';
 import { getSupportedSymbols, getUsdRate } from '@/lib/rates';
-import { getRateWithFallback, logStaleDataUsage, incrementStaleDataCount } from '@/lib/staleData';
+// Stale data utilities available for future use if needed
+// import { getRateWithFallback, logStaleDataUsage, incrementStaleDataCount } from '@/lib/staleData';
 import { getRateResilient } from '@/lib/resilientData';
 
 export const dynamic = 'force-dynamic';
@@ -149,8 +149,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     > = {};
 
     for (const symbol of symbols) {
-      const cacheKey = ratesCacheKey(symbol, dateParam ?? undefined);
-
       // Use resilient data access with graceful degradation
       const { data: rate, source, degraded, degradedReason } = await getRateResilient(
         symbol,
@@ -221,7 +219,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         cache: 'HIT' | 'MISS';
         degraded?: boolean;
         degradation_reason?: string;
-        stale_by_symbol?: Record<string, { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string }>;
+        stale_by_symbol?: Record<string, { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string | null; degraded?: boolean; degradedReason?: string }>;
         timestamp: string;
       };
     } = { data: rates };
