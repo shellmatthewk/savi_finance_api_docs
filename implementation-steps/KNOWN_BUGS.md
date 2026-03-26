@@ -142,6 +142,46 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 06: Stale Data Fallback
+
+### Bug: Cached Stale Data Not Marked on Cache HIT (High)
+**File:** `src/app/api/v1/rates/route.ts` (lines 152-156)
+**Issue:** When stale data is returned from cache, the `staleMetadata` is not populated. Clients receive stale data without `X-Stale` header or metadata.
+**Impact:** Clients can't detect they're receiving stale cached data
+**Fix:** Either don't cache stale responses, or cache with stale metadata and restore on HIT.
+
+### Bug: Stale Data Cached with Requested-Date Key (High)
+**File:** `src/app/api/v1/rates/route.ts` (lines 149, 193)
+**Issue:** Stale data (from date Y) is cached with key containing requested date X. Subsequent requests for date X get stale data silently.
+**Impact:** Cache pollution, incorrect data served
+**Fix:** Use actual data date in cache key, or don't cache stale responses.
+
+### Issue: `dataAge` Calculation Semantics Confusing
+**File:** `src/lib/staleData.ts` (lines 49-54)
+**Issue:** `dataAge` is calculated as `requestedDate - actualDate`, not `today - actualDate`. Meaning varies based on what date was requested.
+**Impact:** Confusing for API consumers
+**Fix:** Calculate from today, or rename to `dateOffset` and document clearly.
+
+### Issue: Redis KEYS Command is O(N)
+**File:** `src/lib/staleData.ts` (line 121)
+**Issue:** `getStaleDataStats()` uses `redis.keys('stats:stale:*')` which scans entire keyspace.
+**Impact:** Performance degradation at scale, can block Redis
+**Fix:** Use `SCAN` iterator or maintain a Set of known symbol keys.
+
+### Gap: No TTL on Stats Keys
+**File:** `src/lib/staleData.ts` (line 96)
+**Issue:** `stats:stale:{symbol}` and daily keys never expire, accumulating forever.
+**Impact:** Redis memory growth, stale stats for removed symbols
+**Fix:** Add TTL via `INCR` + `EXPIRE` pipeline or use `SETEX` pattern.
+
+### Issue: `response.ts` Helper Unused
+**File:** `src/lib/response.ts`
+**Issue:** `createSuccessResponse()` helper created but routes manually construct responses.
+**Impact:** Dead code, inconsistency
+**Fix:** Either use the helper consistently or remove it.
+
+---
+
 ## Legend
 
 | Severity | Description |
