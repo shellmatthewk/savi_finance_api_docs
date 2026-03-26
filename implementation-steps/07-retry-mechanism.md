@@ -277,12 +277,12 @@ export async function withSmartRetry<T>(
 
 ## Acceptance Criteria
 
-- [ ] `withRetry` implements exponential backoff
-- [ ] Delays follow 1min → 5min → 15min pattern
-- [ ] Each retry attempt is logged
-- [ ] Provider health tracks consecutive failures
-- [ ] Ingestion cron uses retry wrapper
-- [ ] Existing data preserved on complete failure
+- [x] `withRetry` implements exponential backoff
+- [x] Delays follow 1min → 5min → 15min pattern
+- [x] Each retry attempt is logged
+- [x] Provider health tracks consecutive failures
+- [x] Ingestion cron uses retry wrapper
+- [x] Existing data preserved on complete failure
 
 ---
 

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/db/client';
 import { rates } from '@/db/schema';
 import { invalidateRatesCache, purgeEdgeCache } from '@/lib/cache';
+import { withIngestionRetry, RetryError } from '@/lib/retry';
+import { recordProviderSuccess, recordProviderFailure } from '@/lib/providerHealth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for data fetching
@@ -54,23 +56,32 @@ async function fetchFiatRates(): Promise<RateData[]> {
   const rateData: RateData[] = [];
 
   try {
-    const url = `https://api.exchangerate.host/latest?base=USD&symbols=${symbols.join(',')}`;
-    const response = await fetchWithTimeout(url);
-    const data = await response.json();
+    await withIngestionRetry('fiat', async () => {
+      const url = `https://api.exchangerate.host/latest?base=USD&symbols=${symbols.join(',')}`;
+      const response = await fetchWithTimeout(url);
+      const data = await response.json();
 
-    if (data.rates) {
-      for (const [currency, rate] of Object.entries(data.rates)) {
-        rateData.push({
-          assetClass: 'fiat',
-          symbol: `USD/${currency}`,
-          rate: String(rate),
-          baseCurrency: 'USD',
-          recordedDate: today,
-        });
+      if (data.rates) {
+        for (const [currency, rate] of Object.entries(data.rates)) {
+          rateData.push({
+            assetClass: 'fiat',
+            symbol: `USD/${currency}`,
+            rate: String(rate),
+            baseCurrency: 'USD',
+            recordedDate: today,
+          });
+        }
       }
-    }
+    });
+
+    await recordProviderSuccess('fiat');
   } catch (error) {
-    console.error('Fiat fetch error:', error);
+    if (error instanceof RetryError) {
+      const failures = await recordProviderFailure('fiat', error.lastError);
+      console.error(`[FIAT] All retries exhausted. Consecutive failures: ${failures}`);
+    } else {
+      console.error('Fiat fetch error:', error);
+    }
   }
 
   return rateData;
@@ -89,25 +100,34 @@ async function fetchCryptoRates(): Promise<RateData[]> {
   const rateData: RateData[] = [];
 
   try {
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coins.join(',')}&vs_currencies=usd`;
-    const response = await fetchWithTimeout(url);
-    const data = await response.json();
+    await withIngestionRetry('crypto', async () => {
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coins.join(',')}&vs_currencies=usd`;
+      const response = await fetchWithTimeout(url);
+      const data = await response.json();
 
-    for (const [coinId, priceData] of Object.entries(data)) {
-      const symbol = symbolMap[coinId];
-      const price = (priceData as { usd: number }).usd;
-      if (symbol && price) {
-        rateData.push({
-          assetClass: 'crypto',
-          symbol,
-          rate: String(price),
-          baseCurrency: 'USD',
-          recordedDate: today,
-        });
+      for (const [coinId, priceData] of Object.entries(data)) {
+        const symbol = symbolMap[coinId];
+        const price = (priceData as { usd: number }).usd;
+        if (symbol && price) {
+          rateData.push({
+            assetClass: 'crypto',
+            symbol,
+            rate: String(price),
+            baseCurrency: 'USD',
+            recordedDate: today,
+          });
+        }
       }
-    }
+    });
+
+    await recordProviderSuccess('crypto');
   } catch (error) {
-    console.error('Crypto fetch error:', error);
+    if (error instanceof RetryError) {
+      const failures = await recordProviderFailure('crypto', error.lastError);
+      console.error(`[CRYPTO] All retries exhausted. Consecutive failures: ${failures}`);
+    } else {
+      console.error('Crypto fetch error:', error);
+    }
   }
 
   return rateData;
@@ -122,25 +142,34 @@ async function fetchStockRates(): Promise<RateData[]> {
   if (!apiKey) return rateData;
 
   try {
-    const url = `https://financialmodelingprep.com/api/v3/quote/${symbols.join(',')}?apikey=${apiKey}`;
-    const response = await fetchWithTimeout(url);
-    const data = await response.json();
+    await withIngestionRetry('stocks', async () => {
+      const url = `https://financialmodelingprep.com/api/v3/quote/${symbols.join(',')}?apikey=${apiKey}`;
+      const response = await fetchWithTimeout(url);
+      const data = await response.json();
 
-    if (Array.isArray(data)) {
-      for (const stock of data) {
-        if (stock.symbol && stock.price) {
-          rateData.push({
-            assetClass: 'stocks',
-            symbol: stock.symbol,
-            rate: String(stock.price),
-            baseCurrency: 'USD',
-            recordedDate: today,
-          });
+      if (Array.isArray(data)) {
+        for (const stock of data) {
+          if (stock.symbol && stock.price) {
+            rateData.push({
+              assetClass: 'stocks',
+              symbol: stock.symbol,
+              rate: String(stock.price),
+              baseCurrency: 'USD',
+              recordedDate: today,
+            });
+          }
         }
       }
-    }
+    });
+
+    await recordProviderSuccess('stocks');
   } catch (error) {
-    console.error('Stock fetch error:', error);
+    if (error instanceof RetryError) {
+      const failures = await recordProviderFailure('stocks', error.lastError);
+      console.error(`[STOCKS] All retries exhausted. Consecutive failures: ${failures}`);
+    } else {
+      console.error('Stock fetch error:', error);
+    }
   }
 
   return rateData;
@@ -150,20 +179,33 @@ async function fetchMetalRates(): Promise<RateData[]> {
   const today = getToday();
   const rateData: RateData[] = [];
 
-  // Use fallback values for MVP (metals APIs often require paid access)
-  const fallbackRates = [
-    { symbol: 'XAU/USD', rate: '2340.50' },
-    { symbol: 'XAG/USD', rate: '27.45' },
-    { symbol: 'XPT/USD', rate: '985.00' },
-  ];
+  try {
+    await withIngestionRetry('metals', async () => {
+      // Use fallback values for MVP (metals APIs often require paid access)
+      const fallbackRates = [
+        { symbol: 'XAU/USD', rate: '2340.50' },
+        { symbol: 'XAG/USD', rate: '27.45' },
+        { symbol: 'XPT/USD', rate: '985.00' },
+      ];
 
-  for (const metal of fallbackRates) {
-    rateData.push({
-      assetClass: 'metals',
-      ...metal,
-      baseCurrency: 'USD',
-      recordedDate: today,
+      for (const metal of fallbackRates) {
+        rateData.push({
+          assetClass: 'metals',
+          ...metal,
+          baseCurrency: 'USD',
+          recordedDate: today,
+        });
+      }
     });
+
+    await recordProviderSuccess('metals');
+  } catch (error) {
+    if (error instanceof RetryError) {
+      const failures = await recordProviderFailure('metals', error.lastError);
+      console.error(`[METALS] All retries exhausted. Consecutive failures: ${failures}`);
+    } else {
+      console.error('Metals fetch error:', error);
+    }
   }
 
   return rateData;
