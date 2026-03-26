@@ -261,7 +261,7 @@ export async function getRateResilient(
 
   // Both primary services degraded - try Redis as last resort for stale data
   // Use circuit breaker state instead of serviceHealth which may be stale from earlier in request
-  if (!isCircuitOpen('database') === false && !isCircuitOpen('redis')) {
+  if (isCircuitOpen('database') && !isCircuitOpen('redis')) {
     try {
       // Get latest cached data for this symbol (ignore date specificity)
       const fallbackKey = ratesCacheKey(symbol);

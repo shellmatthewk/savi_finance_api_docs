@@ -238,6 +238,14 @@ export async function GET(request: Request): Promise<NextResponse> {
       });
     }
 
+    // Invalidate cache BEFORE database insert to prevent stale cache serving
+    if (allRates.length > 0) {
+      const ingestedSymbols = [...new Set(allRates.map(r => r.symbol))];
+      await invalidateRatesCache(ingestedSymbols);
+      await purgeEdgeCache(ingestedSymbols.map(s => `rates-${s}`));
+      console.log(`Cache invalidated for ${ingestedSymbols.length} symbols`);
+    }
+
     // Insert into database
     const db = getDb();
     let inserted = 0;
@@ -249,14 +257,6 @@ export async function GET(request: Request): Promise<NextResponse> {
         .onConflictDoNothing({ target: [rates.symbol, rates.recordedDate] })
         .returning();
       inserted = result.length;
-    }
-
-    // Invalidate cache after successful ingestion
-    if (inserted > 0) {
-      const ingestedSymbols = [...new Set(allRates.map(r => r.symbol))];
-      await invalidateRatesCache(ingestedSymbols);
-      await purgeEdgeCache(ingestedSymbols.map(s => `rates-${s}`));
-      console.log(`Cache invalidated for ${ingestedSymbols.length} symbols`);
     }
 
     const duration = Date.now() - startTime;

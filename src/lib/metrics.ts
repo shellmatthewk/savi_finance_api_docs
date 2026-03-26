@@ -5,6 +5,9 @@ import { count } from 'drizzle-orm';
 import { getAllProviderHealth } from './providerHealth';
 import { getCacheStats } from './cache';
 
+// Module start time - persists across requests within same server instance
+// In serverless environments, this resets on cold starts (expected behavior)
+// For persistent uptime across deployments, store in Redis or external monitoring
 const MODULE_START_TIME = Date.now();
 
 export interface SystemMetrics {

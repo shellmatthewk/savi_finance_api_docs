@@ -50,6 +50,7 @@ async function fetchMetalsApiRates(): Promise<MetalRate[]> {
     signal: AbortSignal.timeout(10000),
     headers: {
       'Content-Type': 'application/json',
+      ...(METALS_API_KEY && { 'X-API-Key': METALS_API_KEY }),
     },
   });
 
@@ -57,8 +58,15 @@ async function fetchMetalsApiRates(): Promise<MetalRate[]> {
     throw new Error(`Metals API error: ${response.status} ${response.statusText}`);
   }
 
-  const data: MetalsLiveResponse = await response.json();
+  let data: MetalsLiveResponse;
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error(`Failed to parse Metals API response: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
   const rates: MetalRate[] = [];
+  const missingMetals: string[] = [];
 
   for (const symbol of SUPPORTED_METALS) {
     const key = symbol.toLowerCase();
@@ -68,7 +76,16 @@ async function fetchMetalsApiRates(): Promise<MetalRate[]> {
         rate: data[key].price,
         unit: 'USD/oz', // troy ounce
       });
+    } else {
+      missingMetals.push(symbol);
     }
+  }
+
+  if (missingMetals.length > 0) {
+    console.warn('[METALS] Missing metals in response', {
+      missing: missingMetals,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   return rates;

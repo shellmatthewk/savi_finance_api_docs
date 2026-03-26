@@ -14,9 +14,28 @@ export interface StaleDataResult<T> {
 
 const STALE_ALERT_THRESHOLD_DAYS = 2;
 const STALE_ALERT_COOLDOWN = 3600_000; // 1 hour in milliseconds
+const ALERT_MAP_CLEANUP_INTERVAL = 86400_000; // 24 hours in milliseconds
 
 // Track alert times per symbol to prevent spam
 const staleAlerts = new Map<string, number>();
+
+/**
+ * Periodic cleanup of staleAlerts map to prevent memory leak
+ * Entries older than 24 hours are removed
+ */
+function cleanupStaleAlerts(): void {
+  const now = Date.now();
+  const maxAge = 86400_000; // 24 hours
+
+  for (const [symbol, timestamp] of staleAlerts.entries()) {
+    if (now - timestamp > maxAge) {
+      staleAlerts.delete(symbol);
+    }
+  }
+}
+
+// Start periodic cleanup on module load
+setInterval(cleanupStaleAlerts, ALERT_MAP_CLEANUP_INTERVAL);
 
 /**
  * Get rate with stale fallback
@@ -95,8 +114,9 @@ export async function logStaleDataUsage(
     const lastAlert = staleAlerts.get(symbol);
 
     if (lastAlert === undefined || now - lastAlert >= STALE_ALERT_COOLDOWN) {
-      await sendAlert(Alerts.staleDataServed(symbol, dataAge));
+      // Set timestamp BEFORE sending alert to prevent race condition
       staleAlerts.set(symbol, now);
+      await sendAlert(Alerts.staleDataServed(symbol, dataAge));
     }
   }
 }

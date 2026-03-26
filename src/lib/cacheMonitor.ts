@@ -18,8 +18,9 @@ export async function checkCacheHealth(): Promise<void> {
     if (hitRate < CACHE_HIT_THRESHOLD) {
       const now = Date.now();
       if (lastAlertTime === null || now - lastAlertTime >= ALERT_COOLDOWN) {
-        await sendAlert(Alerts.cacheHitRateLow(hitRate, CACHE_HIT_THRESHOLD * 100));
+        // Set timestamp BEFORE sending alert to prevent race condition
         lastAlertTime = now;
+        await sendAlert(Alerts.cacheHitRateLow(hitRate, CACHE_HIT_THRESHOLD * 100));
       }
     } else if (lastAlertTime !== null) {
       // Reset cooldown when cache recovers

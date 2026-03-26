@@ -324,6 +324,74 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 11: Metrics Endpoint
+
+### Bug: Prometheus Auth Comparison Logic Error (High)
+**File:** `src/app/api/admin/metrics/prometheus/route.ts` (lines 28-39)
+**Issue:** Credential comparison uses full credentials string which can fail if username/password contain colons.
+**Impact:** Prometheus authentication may fail with certain credentials
+**Fix:** Split credentials and compare username/password separately.
+
+### Issue: Module Uptime Resets on Deployment (Medium)
+**File:** `src/lib/metrics.ts` (line 8)
+**Issue:** Uptime calculated from module load time, resets with every deployment.
+**Impact:** False uptime metrics, monitoring confusion
+**Fix:** Store uptime timestamp in Redis or calculate from service creation.
+
+### Issue: Duplicated IP Header Parsing (Low)
+**File:** `src/app/api/admin/metrics/route.ts` (multiple lines)
+**Issue:** IP extraction code duplicated 3 times. Should be shared utility.
+**Impact:** Maintenance burden, inconsistency risk
+**Fix:** Extract IP parsing to shared utility function.
+
+### Gap: Cache Stats Never Incremented (Medium)
+**File:** `src/lib/metrics.ts` (lines 134-163)
+**Issue:** collectMetrics() reads cache stats but incrementCacheHit/Miss may not be called consistently.
+**Impact:** Cache metrics always show 0 or stale values
+**Fix:** Ensure cache hit/miss tracking in all cache read paths.
+
+---
+
+## Step 12: Metals API
+
+### Bug: Missing API Key in Metals Request (High)
+**File:** `src/lib/providers/metals.ts` (lines 45-54)
+**Issue:** API key loaded but never included in fetch request headers.
+**Impact:** Metal API calls fail due to missing authentication
+**Fix:** Add API key to request headers.
+
+### Issue: No JSON Parsing Error Handling (Medium)
+**File:** `src/lib/providers/metals.ts` (line 60)
+**Issue:** No try-catch around response.json(). Malformed responses crash ingestion.
+**Impact:** Uncaught exceptions on API errors
+**Fix:** Wrap JSON parsing in try-catch.
+
+### Issue: Silent Partial Data Loss (Medium)
+**File:** `src/lib/providers/metals.ts` (lines 63-72)
+**Issue:** Missing metals silently skipped with no warning logged.
+**Impact:** Incomplete data without notification
+**Fix:** Log which symbols were missing from response.
+
+### Issue: Symbol Format Inconsistency (Medium)
+**File:** `src/data/assets.ts` vs `src/app/api/cron/ingest-eod/route.ts`
+**Issue:** assets.ts defines 'XAU' but ingestion stores 'XAU/USD'. Inconsistent with fiat formats.
+**Impact:** API queries with 'XAU' won't match database
+**Fix:** Define canonical symbol format across all asset classes.
+
+### Issue: Cache Invalidation Race Condition (Medium)
+**File:** `src/app/api/cron/ingest-eod/route.ts` (lines 254-260)
+**Issue:** Cache invalidated AFTER DB insert. Brief window serves stale data.
+**Impact:** Users may see old prices for seconds after ingestion
+**Fix:** Invalidate cache before insert or use atomic operations.
+
+### Gap: No Fallback for Platinum/Palladium (Low)
+**File:** `src/lib/providers/metals.ts` (lines 151-169)
+**Issue:** GoldAPI fallback only supports XAU/XAG. XPT/XPD have no backup.
+**Impact:** Platinum/Palladium data lost if primary fails
+**Fix:** Find secondary provider or accept limited fallback coverage.
+
+---
+
 ## Legend
 
 | Severity | Description |

@@ -25,16 +25,15 @@ function verifyPrometheusAuth(request: Request): boolean {
       'base64'
     ).toString('utf-8');
 
-    const [username, password] = credentials.split(':');
     const expectedAuth = `${prometheusUser}:${prometheusPass}`;
 
-    // Timing-safe comparison
-    const userBuffer = Buffer.from(credentials);
+    // Timing-safe comparison (credentials may contain multiple colons in password)
+    const credentialsBuffer = Buffer.from(credentials);
     const expectedBuffer = Buffer.from(expectedAuth);
 
     if (
-      userBuffer.length === expectedBuffer.length &&
-      timingSafeEqual(userBuffer, expectedBuffer)
+      credentialsBuffer.length === expectedBuffer.length &&
+      timingSafeEqual(credentialsBuffer, expectedBuffer)
     ) {
       return true;
     }
