@@ -31,6 +31,17 @@ function getMaxFromDate(plan: Plan): Date {
   return date;
 }
 
+/**
+ * Format date as YYYY-MM-DD string using local timezone
+ * This avoids timezone shift issues that occur with toISOString()
+ */
+function formatDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 interface HistoryPoint {
   date: string;
   rate: string;
@@ -140,7 +151,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           {
             error: 'History limit exceeded',
             message: `Your ${auth.plan} plan allows up to ${historyLimit} days of history.${upgradeMessage}`,
-            max_from_date: maxFromDate.toISOString().split('T')[0],
+            max_from_date: formatDateString(maxFromDate),
           },
           { status: 403, headers: createRateLimitHeaders(rateLimitInfo) }
         );
@@ -158,9 +169,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Generate cache key for this query
-    const fromDateStr = fromDate.toISOString().split('T')[0];
-    const toDateStr = toDate.toISOString().split('T')[0];
+    // Generate cache key for this query (use local timezone to avoid UTC date shift)
+    const fromDateStr = formatDateString(fromDate);
+    const toDateStr = formatDateString(toDate);
     const cacheKey = historyRatesCacheKey(symbol, fromDateStr, toDateStr);
 
     // Check cache first
@@ -174,6 +185,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         headers: {
           ...createRateLimitHeaders(rateLimitInfo),
           'X-Cache': 'HIT',
+          'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
+          'Vary': 'x-api-key',
+          'Surrogate-Key': `rates-history-${symbol}`,
         },
       });
     }
@@ -215,6 +229,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       headers: {
         ...createRateLimitHeaders(rateLimitInfo),
         'X-Cache': 'MISS',
+        'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
+        'Vary': 'x-api-key',
+        'Surrogate-Key': `rates-history-${symbol}`,
       },
     });
   } catch (error) {

@@ -126,10 +126,10 @@ function generateEdgeCacheKey(request: NextRequest): string {
 
 ## Acceptance Criteria
 
-- [ ] Middleware applies Cache-Control headers to API routes
-- [ ] Auth routes have `no-store` directive
-- [ ] Surrogate-Key header present for cache invalidation
-- [ ] Vary header set to prevent cross-user cache pollution
+- [x] Middleware applies Cache-Control headers to API routes
+- [x] Auth routes have `no-store` directive
+- [x] Surrogate-Key header present for cache invalidation
+- [x] Vary header set to prevent cross-user cache pollution
 - [ ] Edge cache working in Vercel deployment
 
 ---

@@ -92,10 +92,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       total_symbols: totalSymbols,
     };
 
-    // Cache for 1 hour
+    // Edge cache for 24 hours with stale-while-revalidate
+    const surrogateKey = assetClassParam ? `assets-${assetClassParam}` : 'assets-all';
     const headers = {
       ...createRateLimitHeaders(rateLimitInfo),
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
+      'Vary': 'x-api-key',
+      'Surrogate-Key': surrogateKey,
     };
 
     return NextResponse.json(response, { headers });

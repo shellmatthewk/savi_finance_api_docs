@@ -166,6 +166,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const headers = {
       ...createRateLimitHeaders(rateLimitInfo),
       'X-Cache': allCacheHits && rates.length > 0 ? 'HIT' : 'MISS',
+      'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
+      'Vary': 'x-api-key',
+      'Surrogate-Key': symbols.length === 1 ? `rates-${symbols[0]}` : 'rates-batch',
     };
 
     return NextResponse.json(response, { headers });
