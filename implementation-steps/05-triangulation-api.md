@@ -218,11 +218,11 @@ Document supported cross-pairs in assets response.
 
 ## Acceptance Criteria
 
-- [ ] `GET /api/v1/rates?symbol=EUR/JPY` returns triangulated rate
-- [ ] Response includes `triangulated: true` in meta
-- [ ] Triangulated rates are cached
-- [ ] Invalid pairs return 400 with helpful error
-- [ ] USD self-rate returns 1
+- [x] `GET /api/v1/rates?symbol=EUR/JPY` returns triangulated rate
+- [x] Response includes `triangulated: true` in meta
+- [x] Triangulated rates are cached
+- [x] Invalid pairs return 400 with helpful error
+- [x] USD self-rate returns 1
 
 ---
 

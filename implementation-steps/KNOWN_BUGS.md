@@ -102,6 +102,46 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 05: Triangulation API Integration
+
+### Issue: Triangulated Rates Not Invalidated (Medium)
+**File:** `src/lib/cache.ts` (invalidateRatesCache function)
+**Issue:** `invalidateRatesCache()` clears `rates:*` pattern but triangulated rates use `triangulated:*` prefix, so they're never invalidated.
+**Impact:** Stale triangulated rates persist after EOD ingestion
+**Fix:** Update `invalidateRatesCache()` to also clear `triangulated:*` pattern, or use `rates:triangulated:*` prefix.
+
+### Issue: `getUsdRate()` Missing Caching (Medium)
+**File:** `src/lib/rates.ts` (getUsdRate function)
+**Issue:** `getUsdRate()` directly queries DB without checking cache first, unlike the main rates endpoint.
+**Impact:** Cache misses for triangulated rates cause redundant DB queries even if USD rates are already cached.
+**Fix:** Add cache lookup before DB query or reuse cache from main rates endpoint.
+
+### Gap: No Cache Stats for Triangulated Rates
+**File:** `src/app/api/v1/rates/route.ts` (handleCrossRateRequest function)
+**Issue:** Triangulated rate path doesn't call `incrementCacheHit()` / `incrementCacheMiss()`.
+**Impact:** Cache statistics are incomplete/inaccurate
+**Fix:** Add cache stat tracking to triangulated rate handler.
+
+### Issue: Error Details Exposed in Production (Medium)
+**Files:** `src/app/api/v1/rates/route.ts`, `src/app/api/v1/assets/route.ts`
+**Issue:** 500 error responses include `details: errorMessage` exposing internal errors.
+**Impact:** Security information disclosure risk
+**Fix:** Only include `details` when `process.env.NODE_ENV !== 'production'`.
+
+### Gap: Date Format Not Normalized in Cache Key
+**File:** `src/app/api/v1/rates/route.ts` (line 252)
+**Issue:** Cache key uses raw date param. `2024-01-01` vs `2024-1-1` create different cache keys for same date.
+**Impact:** Cache fragmentation, reduced hit rate
+**Fix:** Parse and format date consistently (e.g., `YYYY-MM-DD`) before using in cache key.
+
+### Gap: USD Might Not Be in Supported Symbols
+**File:** `src/lib/rates.ts` (getSupportedSymbols function)
+**Issue:** If no USD entries exist in DB, `canTriangulate('EUR', 'USD', supportedSymbols)` fails with "Unsupported quote currency".
+**Impact:** USD cross-pairs may fail validation
+**Fix:** Ensure USD is always in supported symbols set (seed DB or add programmatically).
+
+---
+
 ## Legend
 
 | Severity | Description |

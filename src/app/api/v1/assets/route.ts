@@ -14,6 +14,11 @@ interface AssetsResponse {
     symbols: string[];
   }[];
   total_symbols: number;
+  cross_pairs: {
+    supported: boolean;
+    format: string;
+    note: string;
+  };
 }
 
 /**
@@ -90,6 +95,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const response: AssetsResponse = {
       asset_classes: assetClasses,
       total_symbols: totalSymbols,
+      cross_pairs: {
+        supported: true,
+        format: 'BASE/QUOTE (e.g., EUR/JPY)',
+        note: 'Any combination of supported currencies can be triangulated using /api/v1/rates?symbol=BASE/QUOTE',
+      },
     };
 
     // Edge cache for 24 hours with stale-while-revalidate

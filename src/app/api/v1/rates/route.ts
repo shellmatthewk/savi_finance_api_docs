@@ -10,6 +10,13 @@ import {
   incrementCacheHit,
   incrementCacheMiss,
 } from '@/lib/cache';
+import {
+  parseCrossPair,
+  isCrossPair,
+  calculateTriangulation,
+  canTriangulate,
+} from '@/lib/triangulation';
+import { getSupportedSymbols, getUsdRate } from '@/lib/rates';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +27,24 @@ interface RateResponse {
   asset_class: string;
   date: string;
   delayed_by: string;
+}
+
+interface TriangulatedRateResponse {
+  data: {
+    symbol: string;
+    rate: number;
+    inverseRate: number;
+    date: string;
+  };
+  meta: {
+    triangulated: true;
+    baseCurrency: string;
+    quoteCurrency: string;
+    usdToBase: number;
+    usdToQuote: number;
+    precision: number;
+    cache: 'HIT' | 'MISS';
+  };
 }
 
 /**
@@ -48,8 +73,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Parse query parameters
     const { searchParams } = new URL(request.url);
+    const symbolParam = searchParams.get('symbol');
     const symbolsParam = searchParams.get('symbols');
     const dateParam = searchParams.get('date');
+
+    // Check if this is a cross-rate request (single symbol parameter)
+    if (symbolParam && isCrossPair(symbolParam)) {
+      const auth_response = await handleCrossRateRequest(
+        symbolParam,
+        searchParams,
+        rateLimitInfo
+      );
+      logUsage(auth.apiKeyId, auth.userId, '/api/v1/rates').catch(console.error);
+      return auth_response;
+    }
 
     if (!symbolsParam) {
       return NextResponse.json(
@@ -183,4 +220,85 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { status: 500 }
     );
   }
+}
+
+async function handleCrossRateRequest(
+  symbol: string,
+  searchParams: URLSearchParams,
+  rateLimitInfo: any
+): Promise<NextResponse> {
+  const parsed = parseCrossPair(symbol);
+  if (!parsed) {
+    return NextResponse.json(
+      { error: 'Invalid cross-rate format' },
+      { status: 400, headers: createRateLimitHeaders(rateLimitInfo) }
+    );
+  }
+
+  const { base, quote } = parsed;
+  const date = searchParams.get('date');
+
+  // Validate both currencies exist
+  const supportedSymbols = await getSupportedSymbols();
+  const validation = canTriangulate(base, quote, supportedSymbols);
+  if (!validation.valid) {
+    return NextResponse.json(
+      { error: validation.error },
+      { status: 400, headers: createRateLimitHeaders(rateLimitInfo) }
+    );
+  }
+
+  // Check cache first
+  const cacheKey = `triangulated:${base}:${quote}:${date || 'latest'}`;
+  const cached = await getFromCache<TriangulatedRateResponse>(cacheKey);
+  if (cached) {
+    const response = {
+      ...cached,
+      meta: { ...cached.meta, cache: 'HIT' as const },
+    };
+    return NextResponse.json(response, {
+      headers: createRateLimitHeaders(rateLimitInfo),
+    });
+  }
+
+  // Fetch USD rates for both currencies
+  const [usdToBase, usdToQuote] = await Promise.all([
+    getUsdRate(base, date),
+    getUsdRate(quote, date),
+  ]);
+
+  if (!usdToBase || !usdToQuote) {
+    return NextResponse.json(
+      { error: 'Unable to calculate cross-rate: missing source data' },
+      { status: 404, headers: createRateLimitHeaders(rateLimitInfo) }
+    );
+  }
+
+  // Calculate triangulation
+  const result = calculateTriangulation(base, quote, usdToBase, usdToQuote);
+
+  const response: TriangulatedRateResponse = {
+    data: {
+      symbol: `${base}/${quote}`,
+      rate: result.rate,
+      inverseRate: result.inverseRate,
+      date: date || new Date().toISOString().split('T')[0],
+    },
+    meta: {
+      triangulated: true,
+      baseCurrency: base,
+      quoteCurrency: quote,
+      usdToBase: result.usdToBase,
+      usdToQuote: result.usdToQuote,
+      precision: result.precision,
+      cache: 'MISS',
+    },
+  };
+
+  // Cache the triangulated result
+  await setInCache(cacheKey, response);
+
+  return NextResponse.json(response, {
+    headers: createRateLimitHeaders(rateLimitInfo),
+  });
 }
