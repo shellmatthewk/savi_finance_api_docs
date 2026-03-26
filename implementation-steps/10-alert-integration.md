@@ -266,12 +266,12 @@ export async function GET(request: Request) {
 
 ## Acceptance Criteria
 
-- [ ] Ingestion failures trigger Slack alerts
-- [ ] >2 consecutive failures trigger critical (PagerDuty)
-- [ ] Redis/DB outages trigger alerts (once per outage)
-- [ ] Cache degradation triggers alerts
-- [ ] Stale data usage triggers alerts after threshold
-- [ ] Alert summary endpoint shows all active issues
+- [x] Ingestion failures trigger Slack alerts
+- [x] >2 consecutive failures trigger critical (PagerDuty)
+- [x] Redis/DB outages trigger alerts (once per outage)
+- [x] Cache degradation triggers alerts
+- [x] Stale data usage triggers alerts after threshold
+- [x] Alert summary endpoint shows all active issues
 
 ---
 

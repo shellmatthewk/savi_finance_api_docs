@@ -3,6 +3,7 @@ import { getDb } from '@/db/client';
 import { rates } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { getFromCache, setInCache, ratesCacheKey } from './cache';
+import { sendAlert, Alerts } from './alerts';
 
 export interface DataAccessResult<T> {
   data: T | null;
@@ -30,6 +31,10 @@ const serviceHealth: ServiceHealth = {
 
 const circuitBreakers: Map<string, CircuitBreakerState> = new Map();
 
+// Track if alerts have been sent for service outages
+let redisAlertSent = false;
+let dbAlertSent = false;
+
 const FAILURE_THRESHOLD = 5;
 const RESET_TIMEOUT = 30_000; // 30 seconds
 
@@ -41,14 +46,25 @@ async function checkRedisHealth(): Promise<boolean> {
     const redis = getRedis();
     if (!redis) {
       serviceHealth.redis = false;
+      if (!redisAlertSent) {
+        await sendAlert(Alerts.serviceDown('Redis'));
+        redisAlertSent = true;
+      }
       return false;
     }
     await redis.ping();
     serviceHealth.redis = true;
+    if (redisAlertSent) {
+      redisAlertSent = false; // Reset flag on recovery
+    }
     return true;
   } catch {
     serviceHealth.redis = false;
     console.error('[HEALTH] Redis unavailable');
+    if (!redisAlertSent) {
+      await sendAlert(Alerts.serviceDown('Redis'));
+      redisAlertSent = true;
+    }
     recordServiceFailure('redis');
     return false;
   }
@@ -62,10 +78,17 @@ async function checkDatabaseHealth(): Promise<boolean> {
     const db = getDb();
     await db.execute('SELECT 1');
     serviceHealth.database = true;
+    if (dbAlertSent) {
+      dbAlertSent = false; // Reset flag on recovery
+    }
     return true;
   } catch {
     serviceHealth.database = false;
     console.error('[HEALTH] Database unavailable');
+    if (!dbAlertSent) {
+      await sendAlert(Alerts.serviceDown('PostgreSQL'));
+      dbAlertSent = true;
+    }
     recordServiceFailure('database');
     return false;
   }

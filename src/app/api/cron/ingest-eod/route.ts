@@ -4,6 +4,7 @@ import { rates } from '@/db/schema';
 import { invalidateRatesCache, purgeEdgeCache } from '@/lib/cache';
 import { withIngestionRetry, RetryError } from '@/lib/retry';
 import { recordProviderSuccess, recordProviderFailure } from '@/lib/providerHealth';
+import { sendAlert, Alerts } from '@/lib/alerts';
 
 export const dynamic = 'force-dynamic';
 // maxDuration must accommodate retry delays: 1min + 5min = 6min+
@@ -81,6 +82,7 @@ async function fetchFiatRates(): Promise<RateData[]> {
     const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
     const failures = await recordProviderFailure('fiat', failureError);
     console.error(`[FIAT] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
+    await sendAlert(Alerts.ingestionFailure('fiat', failureError.message, failures));
   }
 
   return rateData;
@@ -124,6 +126,7 @@ async function fetchCryptoRates(): Promise<RateData[]> {
     const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
     const failures = await recordProviderFailure('crypto', failureError);
     console.error(`[CRYPTO] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
+    await sendAlert(Alerts.ingestionFailure('crypto', failureError.message, failures));
   }
 
   return rateData;
@@ -163,6 +166,7 @@ async function fetchStockRates(): Promise<RateData[]> {
     const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
     const failures = await recordProviderFailure('stocks', failureError);
     console.error(`[STOCKS] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
+    await sendAlert(Alerts.ingestionFailure('stocks', failureError.message, failures));
   }
 
   return rateData;
@@ -196,6 +200,7 @@ async function fetchMetalRates(): Promise<RateData[]> {
     const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
     const failures = await recordProviderFailure('metals', failureError);
     console.error(`[METALS] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
+    await sendAlert(Alerts.ingestionFailure('metals', failureError.message, failures));
   }
 
   return rateData;
@@ -224,6 +229,19 @@ export async function GET(request: Request): Promise<NextResponse> {
     ]);
 
     const allRates = [...fiatRates, ...cryptoRates, ...stockRates, ...metalRates];
+
+    // Check if all providers failed (critical alert)
+    if (allRates.length === 0) {
+      await sendAlert({
+        title: 'Critical: All Data Ingestion Failed',
+        message: 'No data was ingested from any provider',
+        severity: 'critical',
+        context: {
+          providers: ['fiat', 'crypto', 'stocks', 'metals'],
+          action: 'Check all provider APIs and network connectivity',
+        },
+      });
+    }
 
     // Insert into database
     const db = getDb();
@@ -263,6 +281,14 @@ export async function GET(request: Request): Promise<NextResponse> {
     });
   } catch (error) {
     console.error('EOD ingestion failed:', error);
+    await sendAlert({
+      title: 'EOD Ingestion Process Failed',
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+      severity: 'critical',
+      context: {
+        action: 'Check ingestion logs and provider health',
+      },
+    });
     return NextResponse.json(
       {
         success: false,

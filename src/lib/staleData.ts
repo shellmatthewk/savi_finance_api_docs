@@ -2,6 +2,7 @@ import { getDb } from '@/db/client';
 import { rates, type Rate } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { getRedis } from './redis';
+import { sendAlert, Alerts } from './alerts';
 
 export interface StaleDataResult<T> {
   data: T | null;
@@ -10,6 +11,12 @@ export interface StaleDataResult<T> {
   dateOffset?: number; // days between actual data date and today
   originalDate?: string;
 }
+
+const STALE_ALERT_THRESHOLD_DAYS = 2;
+const STALE_ALERT_COOLDOWN = 3600_000; // 1 hour in milliseconds
+
+// Track alert times per symbol to prevent spam
+const staleAlerts = new Map<string, number>();
 
 /**
  * Get rate with stale fallback
@@ -65,14 +72,15 @@ export async function getRateWithFallback(
 }
 
 /**
- * Log stale data usage for monitoring
+ * Log stale data usage for monitoring and alert if threshold exceeded
  */
-export function logStaleDataUsage(
+export async function logStaleDataUsage(
   symbol: string,
   requestedDate: string,
   returnedDate: string,
-  reason: string
-): void {
+  reason: string,
+  dataAge?: number
+): Promise<void> {
   console.warn('[STALE_DATA]', {
     symbol,
     requestedDate,
@@ -80,6 +88,17 @@ export function logStaleDataUsage(
     reason,
     timestamp: new Date().toISOString(),
   });
+
+  // Send alert if data is older than threshold and cooldown has passed
+  if (dataAge !== undefined && dataAge >= STALE_ALERT_THRESHOLD_DAYS) {
+    const now = Date.now();
+    const lastAlert = staleAlerts.get(symbol);
+
+    if (lastAlert === undefined || now - lastAlert >= STALE_ALERT_COOLDOWN) {
+      await sendAlert(Alerts.staleDataServed(symbol, dataAge));
+      staleAlerts.set(symbol, now);
+    }
+  }
 }
 
 /**
