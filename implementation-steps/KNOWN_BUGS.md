@@ -182,6 +182,40 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 07: Retry Mechanism
+
+### Bug: `withSmartRetry` Doesn't Actually Reduce Delays (High)
+**File:** `src/lib/retry.ts` (lines 118-141)
+**Issue:** The `onRetry` callback calculates `transientDelay` but this value is discarded. The actual sleep uses `nextDelay` from `withRetry`, not the callback's modified value.
+**Impact:** Transient errors get full exponential delays instead of shorter 5s delays
+**Fix:** Refactor to have callback return modified delay, or remove the function.
+
+### Bug: Backoff Comments Misleading
+**File:** `src/lib/retry.ts`
+**Issue:** Comments say "1min → 5min → 15min" but with 3 max attempts, only 2 waits occur (1min, 5min). The 15min delay is never reached.
+**Impact:** Documentation doesn't match behavior
+**Fix:** Either increase `maxAttempts` to 4 or update comments to "1min → 5min".
+
+### Issue: Race Condition in Health Tracking
+**File:** `src/lib/providerHealth.ts` (lines 49-65)
+**Issue:** `hincrby` is atomic but subsequent `hset` is not. Two concurrent failures could see stale counts when calculating status.
+**Impact:** Status could briefly show wrong value under concurrent failures
+**Fix:** Use Lua script or Redis transaction for atomicity.
+
+### Gap: `maxDuration` vs Retry Delays Mismatch
+**File:** `src/app/api/cron/ingest-eod/route.ts` (line 9)
+**Issue:** `maxDuration = 60` seconds but retry delays total 6+ minutes. Vercel kills function before retries complete.
+**Impact:** Retries never execute in serverless context
+**Fix:** Either reduce delays (5s→10s→20s) or increase maxDuration (Pro: 300s, Enterprise: 900s).
+
+### Gap: Non-RetryError Failures Not Tracked
+**File:** `src/app/api/cron/ingest-eod/route.ts` (lines 78-84)
+**Issue:** Only `RetryError` triggers `recordProviderFailure()`. Other errors (parsing bugs, etc.) are logged but not tracked.
+**Impact:** Incomplete provider health picture
+**Fix:** Call `recordProviderFailure()` for all caught errors.
+
+---
+
 ## Legend
 
 | Severity | Description |
