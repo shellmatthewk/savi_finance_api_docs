@@ -4,6 +4,16 @@ info:
   description: |
     Real-time and historical financial data API covering fiat currencies,
     cryptocurrencies, stocks, and precious metals.
+
+    ## Rate Limits
+    - Sandbox: 100 requests/day
+    - Standard: 10,000 requests/day
+    - Enterprise: Unlimited
+
+    ## History Limits
+    - Sandbox: 30 days
+    - Standard: 365 days
+    - Enterprise: Unlimited
   version: 1.0.0
   contact:
     name: VaultLine Support
@@ -16,7 +26,7 @@ servers:
     description: Development
 
 security:
-  - BearerAuth: []
+  - ApiKeyAuth: []
 
 paths:
   /rates:
@@ -39,9 +49,12 @@ paths:
             multiple:
               value: EUR,BTC/USD,AAPL
               summary: Multiple symbols
-            cross:
-              value: EUR/JPY
-              summary: Cross rate
+        - name: symbol
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Single cross-rate symbol (e.g., "EUR/JPY") - use for triangulated rates
         - name: date
           in: query
           required: false
@@ -55,7 +68,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RatesResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/RatesResponse'
+                  - $ref: '#/components/schemas/TriangulatedRateResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -64,11 +79,18 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /rates/history:
     get:
       summary: Get historical rates
-      description: Returns rate history for a symbol over a date range.
+      description: |
+        Returns rate history for a symbol over a date range.
+        History range is limited by plan:
+        - Sandbox: 30 days
+        - Standard: 365 days
+        - Enterprise: Unlimited
       parameters:
         - name: symbol
           in: query
@@ -102,10 +124,14 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /assets:
     get:
@@ -132,14 +158,16 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
 components:
   securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: JWT token obtained from authentication
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API key for authentication
 
   schemas:
     Rate:
@@ -149,34 +177,28 @@ components:
           type: string
           example: EUR
         rate:
-          type: number
-          example: 0.92
+          type: string
+          example: "0.92"
+        base_currency:
+          type: string
+          example: USD
+        asset_class:
+          type: string
+          enum: [fiat, crypto, stocks, metals]
+          example: fiat
         date:
           type: string
           format: date
           example: '2024-03-15'
+        delayed_by:
+          type: string
+          example: "0"
       required:
         - symbol
         - rate
-
-    RateWithMeta:
-      allOf:
-        - $ref: '#/components/schemas/Rate'
-        - type: object
-          properties:
-            meta:
-              type: object
-              properties:
-                triangulated:
-                  type: boolean
-                  description: Whether this is a triangulated cross-rate
-                stale:
-                  type: boolean
-                  description: Whether data is older than 1 hour
-                cache:
-                  type: string
-                  enum: [HIT, MISS]
-                  description: Cache status for this request
+        - base_currency
+        - asset_class
+        - date
 
     RatesResponse:
       type: object
@@ -184,9 +206,69 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/RateWithMeta'
+            $ref: '#/components/schemas/Rate'
+        not_found:
+          type: array
+          items:
+            type: string
+          description: Symbols that were not found
+        meta:
+          type: object
+          properties:
+            cache:
+              type: string
+              enum: [HIT, MISS]
+            timestamp:
+              type: string
+              format: date-time
       required:
         - data
+        - meta
+
+    TriangulatedRateResponse:
+      type: object
+      description: Response for cross-rate triangulated requests
+      properties:
+        data:
+          type: object
+          properties:
+            symbol:
+              type: string
+              example: EUR/JPY
+            rate:
+              type: number
+              example: 163.45
+            inverseRate:
+              type: number
+              example: 0.00612
+            date:
+              type: string
+              format: date
+        meta:
+          type: object
+          properties:
+            triangulated:
+              type: boolean
+              example: true
+            baseCurrency:
+              type: string
+              example: EUR
+            quoteCurrency:
+              type: string
+              example: JPY
+            usdToBase:
+              type: number
+            usdToQuote:
+              type: number
+            precision:
+              type: integer
+              example: 8
+            cache:
+              type: string
+              enum: [HIT, MISS]
+      required:
+        - data
+        - meta
 
     HistoryResponse:
       type: object
@@ -194,51 +276,73 @@ components:
         symbol:
           type: string
           example: EUR
+        base_currency:
+          type: string
+          example: USD
+        asset_class:
+          type: string
+          enum: [fiat, crypto, stocks, metals]
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
         history:
           type: array
           items:
-            $ref: '#/components/schemas/Rate'
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              rate:
+                type: string
+        delayed_by:
+          type: string
       required:
         - symbol
         - history
 
-    Asset:
+    AssetClass:
       type: object
       properties:
-        symbol:
-          type: string
-          example: EUR
         name:
           type: string
-          example: Euro
-        class:
-          type: string
           enum: [fiat, crypto, stocks, metals]
-          example: fiat
-      required:
-        - symbol
-        - name
-        - class
+        symbol_count:
+          type: integer
+        symbols:
+          type: array
+          items:
+            type: string
 
     AssetsResponse:
       type: object
       properties:
-        count:
+        asset_classes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetClass'
+        total_symbols:
           type: integer
-          example: 150
-        assetClasses:
-          type: array
-          items:
-            type: string
-          example: [fiat, crypto, stocks, metals]
-        assets:
-          type: array
-          items:
-            $ref: '#/components/schemas/Asset'
+          example: 64
+        cross_pairs:
+          type: object
+          properties:
+            supported:
+              type: boolean
+              example: true
+            format:
+              type: string
+              example: "BASE/QUOTE"
+            note:
+              type: string
+              example: "Use triangulated cross-rates for any currency pair"
       required:
-        - count
-        - assetClasses
-        - assets
+        - asset_classes
+        - total_symbols
+        - cross_pairs
 
     Error:
       type: object
@@ -246,14 +350,14 @@ components:
         error:
           type: string
           example: Invalid symbol
+        message:
+          type: string
+          example: Please provide a valid symbol
         code:
           type: string
           example: INVALID_SYMBOL
-        message:
-          type: string
       required:
         - error
-        - code
 
   responses:
     BadRequest:
@@ -264,17 +368,28 @@ components:
             $ref: '#/components/schemas/Error'
           example:
             error: Missing required parameter
-            code: MISSING_SYMBOL
+            message: Please provide at least one symbol using the "symbols" query parameter
 
     Unauthorized:
-      description: Invalid or missing authorization token
+      description: Invalid or missing API key
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error: Invalid or expired token
+            error: Invalid or missing API key
             code: UNAUTHORIZED
+
+    Forbidden:
+      description: Request exceeds plan limits
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: History limit exceeded
+            message: Your plan allows up to 30 days of history
+            max_from_date: "2024-02-15"
 
     NotFound:
       description: Symbol or resource not found
@@ -312,3 +427,21 @@ components:
           example:
             error: Rate limit exceeded
             code: RATE_LIMITED
+
+    ServiceUnavailable:
+      description: Service temporarily unavailable
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - type: object
+                properties:
+                  degraded:
+                    type: boolean
+                  reason:
+                    type: string
+          example:
+            error: Service temporarily unavailable
+            degraded: true
+            reason: Database connection issue
