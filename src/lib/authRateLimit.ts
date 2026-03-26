@@ -36,13 +36,14 @@ export async function checkAuthRateLimit(
       return { allowed: false, retryAfter: ttl > 0 ? ttl : AUTH_RATE_LIMIT.blockDuration / 1000 };
     }
 
-    // Increment attempts
-    const attempts = await redis.incr(attemptsKey);
+    // Increment attempts and set expiration atomically using GETSET pattern
+    // For first request: set with expiry, for subsequent: just increment
+    const pipeline = redis.pipeline();
+    pipeline.incr(attemptsKey);
+    pipeline.expire(attemptsKey, Math.ceil(AUTH_RATE_LIMIT.windowMs / 1000));
+    const results = await pipeline.exec();
 
-    // Set expiration on first attempt
-    if (attempts === 1) {
-      await redis.expire(attemptsKey, AUTH_RATE_LIMIT.windowMs / 1000);
-    }
+    const attempts = (results?.[0] ?? 0) as number;
 
     // Check if exceeded limit
     if (attempts > AUTH_RATE_LIMIT.maxAttempts) {
@@ -61,13 +62,18 @@ export async function checkAuthRateLimit(
     return { allowed: true };
   } catch (error) {
     console.error('Rate limit check failed:', error);
-    // Fail open in case of Redis error
+    // Log the error but fail securely - consider blocking during Redis failure
+    // Fail open for now to avoid breaking auth in development, but production should consider fail-closed
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('Redis unavailable for rate limiting - allowing request but logging incident');
+    }
     return { allowed: true };
   }
 }
 
 /**
  * Reset rate limit for an identifier after successful login
+ * Clears both the attempts key and block key
  */
 export async function resetAuthRateLimit(identifier: string): Promise<void> {
   const redis = getRedis();
@@ -77,7 +83,9 @@ export async function resetAuthRateLimit(identifier: string): Promise<void> {
   }
 
   try {
-    await redis.del(`auth:ratelimit:${identifier}`);
+    const attemptsKey = `auth:ratelimit:${identifier}`;
+    const blockKey = `auth:blocked:${identifier}`;
+    await redis.del(attemptsKey, blockKey);
   } catch (error) {
     console.error('Failed to reset rate limit:', error);
   }

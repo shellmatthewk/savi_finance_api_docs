@@ -23,6 +23,11 @@ interface RegisterResponse {
   apiKey: string;
 }
 
+interface ErrorResponse {
+  error: string;
+  details?: string;
+}
+
 /**
  * Generate a new API key
  * Format: vl_<64 hex chars>
@@ -45,7 +50,7 @@ function hashApiKey(key: string): string {
  * - Sandbox plan subscription
  * - One API key (shown once in response)
  */
-export async function POST(request: Request): Promise<NextResponse<RegisterResponse | { error: string }>> {
+export async function POST(request: Request): Promise<NextResponse<RegisterResponse | ErrorResponse>> {
   const logger = createSafeLogger('Register');
   const ip = request.headers.get('x-forwarded-for') || request.headers.get('cf-connecting-ip') || 'unknown';
 
@@ -156,9 +161,13 @@ export async function POST(request: Request): Promise<NextResponse<RegisterRespo
   } catch (error) {
     logger.error(error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { error: 'Failed to create account', details: errorMessage },
-      { status: 500 }
-    );
+    const response: ErrorResponse = { error: 'Failed to create account' };
+
+    // Only include error details in non-production environments
+    if (process.env.NODE_ENV !== 'production') {
+      response.details = errorMessage;
+    }
+
+    return NextResponse.json(response, { status: 500 });
   }
 }

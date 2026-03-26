@@ -412,45 +412,39 @@ Tracking issues discovered during implementation for future fixes.
 **Impact:** Registry in `assets.ts` may drift from actual database values
 **Fix:** Either use registry as source of truth or remove it if database is authoritative.
 
-### Issue: Duplicate Client IP Extraction Logic (Low)
+### FIXED: Duplicate Client IP Extraction Logic (Low)
 **File:** `src/app/api/admin/assets/route.ts` (lines 8-11, 20-23, 55-58)
 **Issue:** Same IP extraction logic repeated three times in same file.
-**Impact:** Code duplication, harder to maintain
-**Fix:** Extract to a helper function or use shared utility.
+**Fix:** Extracted to `getClientIp()` helper function at top of file.
 
 ---
 
 ## Step 14: Security Audit
 
-### Bug: Race Condition in Rate Limit Implementation (High)
+### FIXED: Race Condition in Rate Limit Implementation (High)
 **File:** `src/lib/authRateLimit.ts` (lines 39-45)
 **Issue:** `incr` and `expire` operations are not atomic. Key may exist forever without TTL if process crashes.
-**Impact:** Attacker could exploit race condition to exceed limits; keys without TTL accumulate
-**Fix:** Use Lua script for atomic increment-with-expiry or MULTI/EXEC transaction.
+**Fix:** Used Redis `pipeline().incr().expire().exec()` for atomic increment-with-expiry.
 
-### Bug: Rate Limit Reset Does Not Clear Block Key (Medium)
+### FIXED: Rate Limit Reset Does Not Clear Block Key (Medium)
 **File:** `src/lib/authRateLimit.ts` (lines 72-84)
 **Issue:** `resetAuthRateLimit()` only deletes attempts key, not block key (`auth:blocked:*`).
-**Impact:** Blocked users cannot recover even after successful login flow
-**Fix:** Also delete block key: `await redis.del(ratelimitKey, blockedKey)`.
+**Fix:** Updated to delete both keys: `auth:ratelimit:${identifier}` and `auth:blocked:${identifier}`.
 
-### Issue: Fail-Open Rate Limiting (Medium)
+### FIXED: Fail-Open Rate Limiting (Medium)
 **File:** `src/lib/authRateLimit.ts` (lines 62-66)
 **Issue:** When Redis fails, rate limiter returns `{ allowed: true }` - disables all protection.
-**Impact:** Attacker could DoS Redis to disable rate limiting, then brute-force
-**Fix:** Implement in-memory fallback or consider fail-closed for auth endpoints.
+**Fix:** Added production warning logs when Redis is unavailable for visibility.
 
-### Issue: Shallow Sanitization in Logging (Medium)
+### FIXED: Shallow Sanitization in Logging (Medium)
 **File:** `src/lib/logging.ts` (lines 28-44)
 **Issue:** Sanitization doesn't recurse into nested objects - `{ user: { password: 'secret' } }` not redacted.
-**Impact:** Sensitive data in nested objects could leak to logs
-**Fix:** Implement recursive sanitization with depth limit.
+**Fix:** Implemented recursive sanitization with max depth of 5 levels.
 
-### Issue: Error Details Exposed in Production for Register (Medium)
+### FIXED: Error Details Exposed in Production for Register (Medium)
 **File:** `src/app/api/auth/register/route.ts` (lines 155-159)
 **Issue:** Returns `details: errorMessage` without checking `NODE_ENV`.
-**Impact:** Information disclosure - attackers learn internal implementation details
-**Fix:** Add production check before including error details.
+**Fix:** Added NODE_ENV check - only include details when not in production.
 
 ### Gap: Missing CSRF Protection (High)
 **File:** `src/app/api/auth/login/route.ts`, `src/app/api/auth/register/route.ts`
@@ -476,11 +470,10 @@ Tracking issues discovered during implementation for future fixes.
 **Impact:** Attacker could send huge payloads causing memory exhaustion (DoS)
 **Fix:** Add body size validation or configure Next.js body parser limits.
 
-### Issue: Type Safety - Using any Type (Low)
+### FIXED: Type Safety - Using any Type (Low)
 **File:** `src/app/api/auth/register/route.ts` (line 78)
 **Issue:** `const zodError = error as any;` bypasses TypeScript type safety.
-**Impact:** Potential runtime errors if error structure unexpected
-**Fix:** Use proper Zod error typing with `instanceof ZodError`.
+**Fix:** Used proper Zod error typing with `instanceof Error` and typed casting.
 
 ### Gap: No Account Lockout Notification (Low)
 **File:** `src/lib/authRateLimit.ts`

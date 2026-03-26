@@ -23,11 +23,18 @@ const SENSITIVE_KEYS = [
 
 /**
  * Sanitize an object for logging by redacting sensitive fields
- * Performs shallow sanitization (doesn't recurse into nested objects)
+ * Performs recursive sanitization into nested objects with a depth limit
  */
 export function sanitizeForLogging(
-  obj: Record<string, unknown>
+  obj: Record<string, unknown>,
+  depth: number = 0,
+  maxDepth: number = 5
 ): Record<string, unknown> {
+  // Prevent infinite recursion on circular references
+  if (depth > maxDepth) {
+    return { '[DEPTH_LIMIT]': '[REDACTED]' };
+  }
+
   const sanitized = { ...obj };
 
   for (const key of Object.keys(sanitized)) {
@@ -37,6 +44,26 @@ export function sanitizeForLogging(
 
     if (isSensitive) {
       sanitized[key] = '[REDACTED]';
+    } else if (
+      typeof sanitized[key] === 'object' &&
+      sanitized[key] !== null &&
+      !(sanitized[key] instanceof Date) &&
+      !(Array.isArray(sanitized[key]))
+    ) {
+      // Recursively sanitize nested objects
+      sanitized[key] = sanitizeForLogging(
+        sanitized[key] as Record<string, unknown>,
+        depth + 1,
+        maxDepth
+      );
+    } else if (Array.isArray(sanitized[key])) {
+      // Recursively sanitize array elements
+      sanitized[key] = (sanitized[key] as unknown[]).map((item) => {
+        if (typeof item === 'object' && item !== null && !(item instanceof Date)) {
+          return sanitizeForLogging(item as Record<string, unknown>, depth + 1, maxDepth);
+        }
+        return item;
+      });
     }
   }
 
