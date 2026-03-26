@@ -43,7 +43,7 @@ export async function POST(request: Request): Promise<NextResponse<LoginResponse
     // Validate email format
     try {
       emailSchema.parse(email);
-    } catch (error) {
+    } catch (_error) {
       return NextResponse.json(
         { error: 'Invalid email format' },
         { status: 400 }

@@ -64,7 +64,7 @@ export async function POST(request: Request): Promise<NextResponse<RegisterRespo
     // Validate email format
     try {
       emailSchema.parse(email);
-    } catch (error) {
+    } catch (_error) {
       return NextResponse.json(
         { error: 'Invalid email format' },
         { status: 400 }
@@ -75,8 +75,11 @@ export async function POST(request: Request): Promise<NextResponse<RegisterRespo
     try {
       passwordSchema.parse(password);
     } catch (error) {
-      const zodError = error as any;
-      const message = zodError.errors?.[0]?.message || 'Password does not meet requirements';
+      let message = 'Password does not meet requirements';
+      if (error instanceof Error && 'errors' in error) {
+        const zodError = error as { errors?: Array<{ message?: string }> };
+        message = zodError.errors?.[0]?.message || message;
+      }
       return NextResponse.json(
         { error: message },
         { status: 400 }

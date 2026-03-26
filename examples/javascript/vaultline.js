@@ -72,7 +72,7 @@ class VaultLine {
 }
 
 // Example usage
-async function main() {
+async function _main() {
   const client = new VaultLine('vl_your_api_key_here');
 
   // Get all available assets

@@ -201,7 +201,7 @@ export default function GoToMarket() {
             Development Roadmap — 16 Weeks to Launch
           </h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {milestones.map((m, i) => (
+            {milestones.map((m) => (
               <div key={m.week} className="rounded-xl bg-card border border-border p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs font-mono text-accent-light font-medium">

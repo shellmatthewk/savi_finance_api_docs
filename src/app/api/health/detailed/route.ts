@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { refreshServiceHealth, getServiceHealth } from '@/lib/resilientData';
+import { refreshServiceHealth } from '@/lib/resilientData';
 
 export const dynamic = 'force-dynamic';
 
