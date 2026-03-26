@@ -17,6 +17,7 @@ import {
   canTriangulate,
 } from '@/lib/triangulation';
 import { getSupportedSymbols, getUsdRate } from '@/lib/rates';
+import { getRateWithFallback, logStaleDataUsage, incrementStaleDataCount } from '@/lib/staleData';
 
 export const dynamic = 'force-dynamic';
 
@@ -135,10 +136,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Fetch rates for each symbol with cache-aside pattern
+    // Fetch rates for each symbol with cache-aside pattern and stale fallback
     const rates: RateResponse[] = [];
     const notFound: string[] = [];
     let allCacheHits = true;
+    const staleMetadata: Record<
+      string,
+      { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string | null }
+    > = {};
 
     for (const symbol of symbols) {
       const cacheKey = ratesCacheKey(symbol, dateParam ?? undefined);
@@ -150,18 +155,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      // Cache miss - fetch from database
+      // Cache miss - fetch from database with stale fallback
       allCacheHits = false;
-      let rate;
-
-      if (parsedDate) {
-        // Fetch for specific date
-        const results = await getRates(symbol, parsedDate, parsedDate);
-        rate = results[0];
-      } else {
-        // Fetch latest
-        rate = await getLatestRate(symbol);
-      }
+      const { data: rate, stale, staleReason, dataAge, originalDate } = await getRateWithFallback(
+        symbol,
+        dateParam ?? undefined
+      );
 
       if (rate) {
         const rateResponse: RateResponse = {
@@ -169,10 +168,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           rate: rate.rate,
           base_currency: rate.baseCurrency,
           asset_class: rate.assetClass,
-          date: rate.recordedDate,
+          date: originalDate || rate.recordedDate,
           delayed_by: '24h',
         };
         rates.push(rateResponse);
+
+        // Store stale metadata for response
+        staleMetadata[symbol] = {
+          stale: stale || false,
+          ...(stale && {
+            staleReason,
+            dataAge,
+            requestedDate: dateParam,
+          }),
+        };
+
+        // Log stale data usage if needed
+        if (stale && staleReason && originalDate && dateParam) {
+          logStaleDataUsage(symbol, dateParam, originalDate, staleReason);
+          await incrementStaleDataCount(symbol).catch(console.error);
+        }
 
         // Cache the result
         await setInCache(cacheKey, rateResponse);
@@ -194,15 +209,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const response: {
       data: RateResponse[];
       not_found?: string[];
+      meta?: {
+        cache: 'HIT' | 'MISS';
+        stale_by_symbol?: Record<string, { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string | null }>;
+        timestamp: string;
+      };
     } = { data: rates };
 
     if (notFound.length > 0) {
       response.not_found = notFound;
     }
 
+    // Include metadata with stale information if applicable
+    const hasStaleData = Object.values(staleMetadata).some((m) => m.stale);
+    response.meta = {
+      cache: allCacheHits && rates.length > 0 ? 'HIT' : 'MISS',
+      ...(hasStaleData && { stale_by_symbol: staleMetadata }),
+      timestamp: new Date().toISOString(),
+    };
+
     const headers = {
       ...createRateLimitHeaders(rateLimitInfo),
       'X-Cache': allCacheHits && rates.length > 0 ? 'HIT' : 'MISS',
+      'X-Stale': hasStaleData ? 'true' : 'false',
       'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
       'Vary': 'x-api-key',
       'Surrogate-Key': symbols.length === 1 ? `rates-${symbols[0]}` : 'rates-batch',

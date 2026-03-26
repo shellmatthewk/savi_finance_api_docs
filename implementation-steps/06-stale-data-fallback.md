@@ -245,12 +245,12 @@ export function createSuccessResponse<T>(
 
 ## Acceptance Criteria
 
-- [ ] API returns 200 OK with stale data when current unavailable
-- [ ] Response includes `stale: true` flag
-- [ ] Response includes `staleReason` explaining the fallback
-- [ ] Response includes `dataAge` showing how old data is
-- [ ] Stale data usage is logged
-- [ ] Stale metrics are tracked in Redis
+- [x] API returns 200 OK with stale data when current unavailable
+- [x] Response includes `stale: true` flag
+- [x] Response includes `staleReason` explaining the fallback
+- [x] Response includes `dataAge` showing how old data is
+- [x] Stale data usage is logged
+- [x] Stale metrics are tracked in Redis
 
 ---
 
