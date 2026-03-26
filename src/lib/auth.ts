@@ -121,3 +121,29 @@ export async function getAuthPayload(): Promise<JWTPayload | null> {
   if (!token) return null;
   return verifyJWT(token);
 }
+
+/**
+ * Verify admin authentication from request
+ * Checks for admin API key in Authorization header
+ */
+export async function verifyAdminAuth(request: Request): Promise<{ success: boolean; userId?: string }> {
+  const authHeader = request.headers.get('authorization');
+  const adminKey = process.env.ADMIN_API_KEY;
+
+  if (!adminKey) {
+    console.warn('ADMIN_API_KEY environment variable not set');
+    return { success: false };
+  }
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { success: false };
+  }
+
+  const token = authHeader.slice(7); // Remove "Bearer " prefix
+
+  if (token === adminKey) {
+    return { success: true, userId: 'admin' };
+  }
+
+  return { success: false };
+}

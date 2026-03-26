@@ -135,3 +135,56 @@ export async function getCacheStats(): Promise<{
     return { hits: 0, misses: 0, hitRate: 0 };
   }
 }
+
+export async function invalidateRatesCache(symbols?: string[]): Promise<void> {
+  if (symbols && symbols.length > 0) {
+    // Invalidate specific symbols
+    for (const symbol of symbols) {
+      await deleteCachePattern(`rates:${symbol}:*`);
+    }
+  } else {
+    // Invalidate all rates cache
+    await deleteCachePattern('rates:*');
+  }
+}
+
+export async function purgeEdgeCache(surrogateKeys: string[]): Promise<void> {
+  // Vercel doesn't have programmatic cache purge
+  // But we set short stale-while-revalidate so it will refresh
+  // For Cloudflare, you would call their purge API here
+  console.log(`Edge cache purge requested for: ${surrogateKeys.join(', ')}`);
+}
+
+// Pre-populate cache with latest rates
+export async function warmRatesCache(): Promise<number> {
+  const { getDb } = await import('@/db/client');
+  const { rates } = await import('@/db/schema');
+  const { desc, eq } = await import('drizzle-orm');
+
+  const db = getDb();
+
+  // Get all unique symbols
+  const symbols = await db
+    .selectDistinct({ symbol: rates.symbol })
+    .from(rates);
+
+  let warmed = 0;
+
+  for (const { symbol } of symbols) {
+    // Get latest rate for each symbol
+    const [latestRate] = await db
+      .select()
+      .from(rates)
+      .where(eq(rates.symbol, symbol))
+      .orderBy(desc(rates.recordedDate))
+      .limit(1);
+
+    if (latestRate) {
+      const cacheKey = ratesCacheKey(symbol, 'latest');
+      await setInCache(cacheKey, latestRate);
+      warmed++;
+    }
+  }
+
+  return warmed;
+}

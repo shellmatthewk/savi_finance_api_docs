@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/db/client';
 import { rates } from '@/db/schema';
+import { invalidateRatesCache, purgeEdgeCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for data fetching
@@ -203,6 +204,14 @@ export async function GET(request: Request): Promise<NextResponse> {
         .onConflictDoNothing({ target: [rates.symbol, rates.recordedDate] })
         .returning();
       inserted = result.length;
+    }
+
+    // Invalidate cache after successful ingestion
+    if (inserted > 0) {
+      const ingestedSymbols = [...new Set(allRates.map(r => r.symbol))];
+      await invalidateRatesCache(ingestedSymbols);
+      await purgeEdgeCache(ingestedSymbols.map(s => `rates-${s}`));
+      console.log(`Cache invalidated for ${ingestedSymbols.length} symbols`);
     }
 
     const duration = Date.now() - startTime;

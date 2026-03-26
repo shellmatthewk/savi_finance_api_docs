@@ -250,11 +250,11 @@ export function isCrossPair(symbol: string): boolean {
 
 ## Acceptance Criteria
 
-- [ ] `triangulateRate` returns correct calculated rate
-- [ ] 8 decimal place precision maintained
-- [ ] Unit tests pass for all cases
-- [ ] Cross-pair parser handles all formats
-- [ ] Validation rejects invalid pairs
+- [x] `triangulateRate` returns correct calculated rate
+- [x] 8 decimal place precision maintained
+- [x] Unit tests pass for all cases
+- [x] Cross-pair parser handles all formats
+- [x] Validation rejects invalid pairs
 
 ---
 

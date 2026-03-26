@@ -157,11 +157,11 @@ export async function GET(request: Request) {
 
 ## Acceptance Criteria
 
-- [ ] Cache is invalidated after successful data ingestion
-- [ ] Cache warming populates Redis with latest rates
-- [ ] Cache stats endpoint returns hit/miss counts
-- [ ] Admin endpoints are protected
-- [ ] Cache hit ratio improves after warming
+- [x] Cache is invalidated after successful data ingestion
+- [x] Cache warming populates Redis with latest rates
+- [x] Cache stats endpoint returns hit/miss counts
+- [x] Admin endpoints are protected
+- [x] Cache hit ratio improves after warming
 
 ---
 
