@@ -49,20 +49,20 @@ export async function recordProviderFailure(
   try {
     const key = `${HEALTH_PREFIX}${provider}`;
 
-    // Increment failure count
+    // Increment failure count atomically
     const failures = await redis.hincrby(key, 'consecutiveFailures', 1);
 
-    // Update last failure info
+    // Update status and error info (using multi-arg hset for atomicity)
     const status =
       failures >= 3 ? 'unhealthy' : failures >= 1 ? 'degraded' : 'healthy';
 
     await redis.hset(key, {
       lastFailure: new Date().toISOString(),
-      lastError: error.message.substring(0, 255), // Limit error message length
+      lastError: error.message.substring(0, 255),
       status,
     });
 
-    return failures;
+    return failures as number;
   } catch (error) {
     console.error(`Failed to record provider failure for ${provider}:`, error);
     return 0;

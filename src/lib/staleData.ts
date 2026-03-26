@@ -7,7 +7,7 @@ export interface StaleDataResult<T> {
   data: T | null;
   stale: boolean;
   staleReason?: string;
-  dataAge?: number; // days old
+  dateOffset?: number; // days between actual data date and today
   originalDate?: string;
 }
 
@@ -46,12 +46,12 @@ export async function getRateWithFallback(
     return { data: null, stale: false };
   }
 
-  const dataAge = requestedDate
-    ? Math.floor(
-        (new Date(requestedDate).getTime() - new Date(latestRate.recordedDate).getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
-    : 0;
+  // Calculate days between today and actual data date
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dataDate = new Date(latestRate.recordedDate);
+  dataDate.setHours(0, 0, 0, 0);
+  const dateOffset = Math.floor((today.getTime() - dataDate.getTime()) / (1000 * 60 * 60 * 24));
 
   return {
     data: latestRate,
@@ -59,7 +59,7 @@ export async function getRateWithFallback(
     staleReason: requestedDate
       ? `Data for ${requestedDate} unavailable, returning data from ${latestRate.recordedDate}`
       : undefined,
-    dataAge: Math.abs(dataAge),
+    dateOffset: dateOffset >= 0 ? dateOffset : 0,
     originalDate: latestRate.recordedDate,
   };
 }
@@ -93,7 +93,15 @@ export async function incrementStaleDataCount(symbol: string): Promise<void> {
     const key = `stats:stale:${symbol}`;
     const dailyKey = `stats:stale:daily:${new Date().toISOString().split('T')[0]}`;
 
-    await Promise.all([redis.incr(key), redis.incr(dailyKey)]);
+    // Increment both counters and set TTL for cleanup
+    // Per-symbol stats expire after 90 days
+    // Daily stats expire after 7 days
+    await Promise.all([
+      redis.incr(key),
+      redis.expire(key, 7776000), // 90 days in seconds
+      redis.incr(dailyKey),
+      redis.expire(dailyKey, 604800), // 7 days in seconds
+    ]);
   } catch (error) {
     console.error('Error incrementing stale data count:', error);
   }
@@ -117,20 +125,29 @@ export async function getStaleDataStats(): Promise<{
     const todayValue = await redis.get(todayKey);
     const today = parseInt(String(todayValue || '0'), 10);
 
-    // Get per-symbol stats
-    const symbolKeys = await redis.keys('stats:stale:*');
+    // Use SCAN to iterate through per-symbol stats (O(N) efficient)
     const bySymbol: Record<string, number> = {};
     let total = 0;
+    let cursor = '0';
 
-    for (const key of symbolKeys) {
-      if (!key.includes('daily')) {
-        const symbol = key.replace('stats:stale:', '');
-        const countValue = await redis.get(key);
-        const count = parseInt(String(countValue || '0'), 10);
-        bySymbol[symbol] = count;
-        total += count;
+    do {
+      const [nextCursor, keys] = await redis.scan(
+        parseInt(cursor),
+        { match: 'stats:stale:*', count: 100 }
+      ) as [string, string[]];
+
+      for (const key of keys) {
+        if (!key.includes('daily')) {
+          const symbol = key.replace('stats:stale:', '');
+          const countValue = await redis.get(key);
+          const count = parseInt(String(countValue || '0'), 10);
+          bySymbol[symbol] = count;
+          total += count;
+        }
       }
-    }
+
+      cursor = nextCursor;
+    } while (cursor !== '0');
 
     return { total, today, bySymbol };
   } catch (error) {

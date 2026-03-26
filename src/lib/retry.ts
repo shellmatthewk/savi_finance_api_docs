@@ -87,7 +87,7 @@ export async function withIngestionRetry<T>(
   return withRetry(fn, {
     maxAttempts: 3,
     baseDelayMs: 60_000, // 1 minute
-    backoffMultiplier: 5, // 1min -> 5min -> 15min (capped at 15)
+    backoffMultiplier: 5, // 1min -> 5min (2 retries with exponential backoff)
     maxDelayMs: 900_000, // 15 minutes max
     onRetry: (attempt, error, nextDelay) => {
       console.error(`[${provider}] Retry ${attempt}`, {
@@ -119,23 +119,53 @@ export async function withSmartRetry<T>(
   fn: () => Promise<T>,
   options: RetryOptions = {}
 ): Promise<T> {
-  const customOptions = { ...options };
-  const originalOnRetry = customOptions.onRetry;
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  let lastError: Error | null = null;
+  let delayMs = opts.baseDelayMs;
 
-  return withRetry(fn, {
-    ...customOptions,
-    onRetry: (attempt, error, nextDelay) => {
+  for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (attempt === opts.maxAttempts) {
+        throw new RetryError(
+          `Failed after ${opts.maxAttempts} attempts: ${lastError.message}`,
+          attempt,
+          lastError
+        );
+      }
+
       // Use shorter delay for transient errors
-      if (isTransientError(error)) {
-        const transientDelay = Math.min(nextDelay, 5000); // 5 second max for transient
-        if (originalOnRetry) {
-          originalOnRetry(attempt, error, transientDelay);
-        }
-        return;
+      let nextDelay: number;
+      if (isTransientError(lastError)) {
+        // Transient errors get 5s max delay
+        nextDelay = Math.min(delayMs, 5000);
+      } else {
+        // Non-transient errors use exponential backoff
+        nextDelay = Math.min(delayMs, opts.maxDelayMs);
       }
-      if (originalOnRetry) {
-        originalOnRetry(attempt, error, nextDelay);
+
+      console.warn(`[RETRY] Attempt ${attempt}/${opts.maxAttempts} failed`, {
+        error: lastError.message,
+        nextRetryIn: `${nextDelay / 1000}s`,
+        transient: isTransientError(lastError),
+        timestamp: new Date().toISOString(),
+      });
+
+      if (opts.onRetry) {
+        opts.onRetry(attempt, lastError, nextDelay);
       }
-    },
-  });
+
+      await sleep(nextDelay);
+
+      // For transient errors, don't increase delay exponentially
+      if (!isTransientError(lastError)) {
+        delayMs *= opts.backoffMultiplier;
+      }
+    }
+  }
+
+  throw lastError || new Error('Retry failed');
 }

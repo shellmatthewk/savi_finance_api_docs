@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify, type JWTPayload as JoseJWTPayload } from 'jose';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import type { Plan } from '@/db/schema';
 
 const COOKIE_NAME = 'session';
@@ -141,8 +142,16 @@ export async function verifyAdminAuth(request: Request): Promise<{ success: bool
 
   const token = authHeader.slice(7); // Remove "Bearer " prefix
 
-  if (token === adminKey) {
-    return { success: true, userId: 'admin' };
+  // Use timing-safe comparison to prevent timing attacks
+  try {
+    const tokenBuffer = Buffer.from(token);
+    const adminKeyBuffer = Buffer.from(adminKey);
+
+    if (tokenBuffer.length === adminKeyBuffer.length && timingSafeEqual(tokenBuffer, adminKeyBuffer)) {
+      return { success: true, userId: 'admin' };
+    }
+  } catch {
+    // timingSafeEqual throws if buffer lengths don't match, treat as failure
   }
 
   return { success: false };

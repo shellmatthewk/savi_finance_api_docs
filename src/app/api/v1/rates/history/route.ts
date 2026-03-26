@@ -171,9 +171,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // Generate cache key for this query (use local timezone to avoid UTC date shift)
+    // Include plan in cache key since different plans have different history limits
     const fromDateStr = formatDateString(fromDate);
     const toDateStr = formatDateString(toDate);
-    const cacheKey = historyRatesCacheKey(symbol, fromDateStr, toDateStr);
+    const cacheKey = `${historyRatesCacheKey(symbol, fromDateStr, toDateStr)}:${auth.plan}`;
 
     // Check cache first
     const cachedResponse = await getFromCache<HistoryResponse>(cacheKey);

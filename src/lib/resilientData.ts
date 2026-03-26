@@ -20,6 +20,7 @@ interface CircuitBreakerState {
   failures: number;
   lastFailure: number;
   state: 'closed' | 'open' | 'half-open';
+  halfOpenInFlight: boolean; // Track if a probe request is in progress
 }
 
 const serviceHealth: ServiceHealth = {
@@ -48,6 +49,7 @@ async function checkRedisHealth(): Promise<boolean> {
   } catch {
     serviceHealth.redis = false;
     console.error('[HEALTH] Redis unavailable');
+    recordServiceFailure('redis');
     return false;
   }
 }
@@ -64,6 +66,7 @@ async function checkDatabaseHealth(): Promise<boolean> {
   } catch {
     serviceHealth.database = false;
     console.error('[HEALTH] Database unavailable');
+    recordServiceFailure('database');
     return false;
   }
 }
@@ -77,6 +80,7 @@ function getCircuitBreaker(service: string): CircuitBreakerState {
       failures: 0,
       lastFailure: 0,
       state: 'closed',
+      halfOpenInFlight: false,
     });
   }
   return circuitBreakers.get(service)!;
@@ -89,6 +93,15 @@ export function recordServiceFailure(service: string): void {
   const breaker = getCircuitBreaker(service);
   breaker.failures++;
   breaker.lastFailure = Date.now();
+  breaker.halfOpenInFlight = false; // Reset half-open probe flag
+
+  // If in half-open state, immediately re-open on failure
+  if (breaker.state === 'half-open') {
+    breaker.state = 'open';
+    breaker.failures = FAILURE_THRESHOLD; // Reset failure counter to threshold
+    console.warn(`[CIRCUIT] ${service} circuit RE-OPENED (half-open failure)`);
+    return;
+  }
 
   if (breaker.failures >= FAILURE_THRESHOLD) {
     breaker.state = 'open';
@@ -105,8 +118,13 @@ export function isCircuitOpen(service: string): boolean {
   if (breaker.state === 'open') {
     // Check if enough time has passed to try again (half-open)
     if (Date.now() - breaker.lastFailure > RESET_TIMEOUT) {
-      breaker.state = 'half-open';
-      return false;
+      // Only allow one probe request to go through at a time
+      if (!breaker.halfOpenInFlight) {
+        breaker.state = 'half-open';
+        breaker.halfOpenInFlight = true; // Mark that probe is in flight
+        return false; // Allow the request through for testing
+      }
+      return true; // Another probe is already in flight, keep circuit open
     }
     return true;
   }
@@ -121,6 +139,7 @@ export function recordServiceSuccess(service: string): void {
   const breaker = getCircuitBreaker(service);
   breaker.failures = 0;
   breaker.state = 'closed';
+  breaker.halfOpenInFlight = false; // Reset half-open probe flag
 }
 
 /**
@@ -134,77 +153,92 @@ export async function getRateResilient(
 
   // Check circuit breaker for Redis
   if (!isCircuitOpen('redis')) {
-    // Try Redis cache first
-    const redisAvailable = await checkRedisHealth();
-    if (redisAvailable) {
-      try {
-        const cached = await getFromCache(cacheKey);
-        if (cached) {
-          recordServiceSuccess('redis');
-          return {
-            data: cached as typeof rates.$inferSelect,
-            source: 'cache',
-            degraded: false,
-          };
-        }
-      } catch (error) {
-        console.error('[CACHE] Error reading from Redis', error);
-        recordServiceFailure('redis');
+    // Redis circuit is closed, try cache
+    try {
+      const cached = await getFromCache(cacheKey);
+      if (cached) {
+        recordServiceSuccess('redis');
+        return {
+          data: cached as typeof rates.$inferSelect,
+          source: 'cache',
+          degraded: false,
+        };
       }
-    } else {
+    } catch (error) {
+      console.error('[CACHE] Error reading from Redis', error);
       recordServiceFailure('redis');
+    }
+  } else {
+    // Redis circuit is open or half-open - only health check if transitioning to half-open
+    const breaker = getCircuitBreaker('redis');
+    if (breaker.state === 'half-open' && breaker.halfOpenInFlight) {
+      // Probe the service
+      const redisAvailable = await checkRedisHealth();
+      if (!redisAvailable) {
+        recordServiceFailure('redis');
+      } else {
+        recordServiceSuccess('redis');
+      }
     }
   }
 
   // Check circuit breaker for database
   if (!isCircuitOpen('database')) {
-    // Try database
-    const dbAvailable = await checkDatabaseHealth();
-    if (dbAvailable) {
-      try {
-        const db = getDb();
+    // Database circuit is closed, try database
+    try {
+      const db = getDb();
 
-        const result = date
-          ? await db
-              .select()
-              .from(rates)
-              .where(and(eq(rates.symbol, symbol), eq(rates.recordedDate, date)))
-              .limit(1)
-          : await db
-              .select()
-              .from(rates)
-              .where(eq(rates.symbol, symbol))
-              .orderBy(desc(rates.recordedDate))
-              .limit(1);
+      const result = date
+        ? await db
+            .select()
+            .from(rates)
+            .where(and(eq(rates.symbol, symbol), eq(rates.recordedDate, date)))
+            .limit(1)
+        : await db
+            .select()
+            .from(rates)
+            .where(eq(rates.symbol, symbol))
+            .orderBy(desc(rates.recordedDate))
+            .limit(1);
 
-        const rate = result[0];
+      const rate = result[0];
 
-        if (rate) {
-          recordServiceSuccess('database');
+      if (rate) {
+        recordServiceSuccess('database');
 
-          // Try to cache for next time (non-blocking)
-          if (serviceHealth.redis && !isCircuitOpen('redis')) {
-            setInCache(cacheKey, rate).catch(() => {});
-          }
-
-          return {
-            data: rate,
-            source: 'database',
-            degraded: !serviceHealth.redis,
-            degradedReason: !serviceHealth.redis ? 'Redis unavailable' : undefined,
-          };
+        // Try to cache for next time (non-blocking)
+        if (serviceHealth.redis && !isCircuitOpen('redis')) {
+          setInCache(cacheKey, rate).catch(() => {});
         }
-      } catch (error) {
-        console.error('[DB] Error querying database', error);
-        recordServiceFailure('database');
+
+        return {
+          data: rate,
+          source: 'database',
+          degraded: !serviceHealth.redis,
+          degradedReason: !serviceHealth.redis ? 'Redis unavailable' : undefined,
+        };
       }
-    } else {
+    } catch (error) {
+      console.error('[DB] Error querying database', error);
       recordServiceFailure('database');
+    }
+  } else {
+    // Database circuit is open or half-open - only health check if transitioning to half-open
+    const breaker = getCircuitBreaker('database');
+    if (breaker.state === 'half-open' && breaker.halfOpenInFlight) {
+      // Probe the service
+      const dbAvailable = await checkDatabaseHealth();
+      if (!dbAvailable) {
+        recordServiceFailure('database');
+      } else {
+        recordServiceSuccess('database');
+      }
     }
   }
 
   // Both primary services degraded - try Redis as last resort for stale data
-  if (!serviceHealth.database && serviceHealth.redis && !isCircuitOpen('redis')) {
+  // Use circuit breaker state instead of serviceHealth which may be stale from earlier in request
+  if (!isCircuitOpen('database') === false && !isCircuitOpen('redis')) {
     try {
       // Get latest cached data for this symbol (ignore date specificity)
       const fallbackKey = ratesCacheKey(symbol);

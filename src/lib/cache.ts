@@ -138,13 +138,21 @@ export async function getCacheStats(): Promise<{
 
 export async function invalidateRatesCache(symbols?: string[]): Promise<void> {
   if (symbols && symbols.length > 0) {
-    // Invalidate specific symbols
-    for (const symbol of symbols) {
-      await deleteCachePattern(`rates:${symbol}:*`);
-    }
+    // Invalidate specific symbols - latest rates, history, and triangulated rates
+    const promises = symbols.flatMap(symbol => [
+      deleteCachePattern(`rates:${symbol}:*`),
+      deleteCachePattern(`rates:history:${symbol}:*`),
+      deleteCachePattern(`triangulated:${symbol}:*`),
+      deleteCachePattern(`triangulated:*:${symbol}:*`), // Pairs where this symbol is quote
+    ]);
+    await Promise.all(promises);
   } else {
-    // Invalidate all rates cache
-    await deleteCachePattern('rates:*');
+    // Invalidate all rates cache - latest rates, history, and triangulated
+    await Promise.all([
+      deleteCachePattern('rates:*'),
+      deleteCachePattern('rates:history:*'),
+      deleteCachePattern('triangulated:*'),
+    ]);
   }
 }
 
@@ -163,15 +171,15 @@ export async function warmRatesCache(): Promise<number> {
 
   const db = getDb();
 
-  // Get all unique symbols
+  // Get all unique symbols first
   const symbols = await db
     .selectDistinct({ symbol: rates.symbol })
     .from(rates);
 
   let warmed = 0;
 
-  for (const { symbol } of symbols) {
-    // Get latest rate for each symbol
+  // Batch fetch latest rates using Promise.all instead of N+1 loop
+  const latestRatesPromises = symbols.map(async ({ symbol }) => {
     const [latestRate] = await db
       .select()
       .from(rates)
@@ -182,9 +190,13 @@ export async function warmRatesCache(): Promise<number> {
     if (latestRate) {
       const cacheKey = ratesCacheKey(symbol, 'latest');
       await setInCache(cacheKey, latestRate);
-      warmed++;
+      return 1;
     }
-  }
+    return 0;
+  });
+
+  const results = await Promise.all(latestRatesPromises);
+  warmed = results.reduce((sum, count) => sum + count as number, 0 as number) as number;
 
   return warmed;
 }

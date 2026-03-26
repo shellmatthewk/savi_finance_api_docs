@@ -11,7 +11,7 @@ describe('triangulateRate', () => {
     // USD -> EUR = 0.92, USD -> JPY = 149.50
     // EUR -> JPY = 149.50 / 0.92 = 162.5
     const result = triangulateRate(0.92, 149.5);
-    expect(result).toBeCloseTo(162.5, 1);
+    expect(result).toBeCloseTo(162.5, 5);
   });
 
   it('handles same rate (1:1)', () => {
@@ -36,8 +36,8 @@ describe('calculateTriangulation', () => {
     expect(result.baseCurrency).toBe('EUR');
     expect(result.quoteCurrency).toBe('JPY');
     expect(result.triangulated).toBe(true);
-    expect(result.rate).toBeCloseTo(162.5, 1);
-    expect(result.inverseRate).toBeCloseTo(0.00615, 4);
+    expect(result.rate).toBeCloseTo(162.5, 5);
+    expect(result.inverseRate).toBeCloseTo(0.00615, 5);
   });
 });
 

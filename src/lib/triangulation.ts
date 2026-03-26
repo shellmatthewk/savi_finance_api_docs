@@ -27,6 +27,11 @@ export function triangulateRate(
   usdToBase: number,
   usdToQuote: number
 ): number {
+  // Validate that inputs are finite numbers
+  if (!Number.isFinite(usdToBase) || !Number.isFinite(usdToQuote)) {
+    throw new Error('Rates must be finite numbers');
+  }
+
   if (usdToBase <= 0 || usdToQuote <= 0) {
     throw new Error('Rates must be positive numbers');
   }
@@ -110,21 +115,18 @@ export function parseCrossPair(symbol: string): ParsedCrossPair | null {
   // Handle dash format: EUR-JPY
   if (normalized.includes('-')) {
     const [base, quote] = normalized.split('-');
-    if (base && quote) {
+    if (base && quote && base.length >= 3 && quote.length >= 3) {
       return { base: base.trim(), quote: quote.trim() };
     }
   }
 
   // Handle concatenated format: EURJPY (6 chars = 3+3)
-  // But reject if either currency is USD (since USD is the intermediary)
+  // Accept USD pairs for consistency with slash/dash formats
   if (normalized.length === 6 && !normalized.includes('/') && !normalized.includes('-')) {
     const base = normalized.substring(0, 3);
     const quote = normalized.substring(3, 6);
 
-    // Reject if either currency is USD
-    if (base !== 'USD' && quote !== 'USD') {
-      return { base, quote };
-    }
+    return { base, quote };
   }
 
   return null;

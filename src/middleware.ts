@@ -25,14 +25,6 @@ export function middleware(request: NextRequest) {
 
   const response = NextResponse.next();
 
-  // Disable cache for auth routes
-  if (request.nextUrl.pathname.startsWith('/api/auth/')) {
-    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    response.headers.set('Pragma', 'no-cache');
-    response.headers.set('Expires', '0');
-    return response;
-  }
-
   // Enable edge caching for rate and asset endpoints
   if (
     request.nextUrl.pathname.startsWith('/api/v1/rates') ||

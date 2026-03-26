@@ -6,6 +6,7 @@ import { getFromCache, setInCache } from './cache';
 /**
  * Get all supported currency symbols from the database
  * Results are cached for 1 hour
+ * Always includes USD for triangulation support
  */
 export async function getSupportedSymbols(): Promise<Set<string>> {
   // Check cache first
@@ -21,6 +22,11 @@ export async function getSupportedSymbols(): Promise<Set<string>> {
     .from(rates);
 
   const symbolSet = symbols.map((s) => s.symbol);
+
+  // Always include USD for triangulation support
+  if (!symbolSet.includes('USD')) {
+    symbolSet.push('USD');
+  }
 
   // Cache for 1 hour
   await setInCache('supported-symbols', symbolSet, { ttl: 3600 });
@@ -45,7 +51,15 @@ export async function getUsdRate(
     return 1;
   }
 
+  // Check cache first
+  const cacheKey = date ? `usd-rate:${symbol}:${date}` : `usd-rate:${symbol}:latest`;
+  const cached = await getFromCache<number>(cacheKey);
+  if (cached !== null) {
+    return cached;
+  }
+
   const db = getDb();
+  let rate: number | null = null;
 
   if (date) {
     // Query for specific date
@@ -55,7 +69,7 @@ export async function getUsdRate(
       .where(and(eq(rates.symbol, symbol), eq(rates.recordedDate, date)));
 
     if (result.length > 0) {
-      return parseFloat(result[0].rate);
+      rate = parseFloat(result[0].rate);
     }
   } else {
     // Query for latest rate
@@ -67,9 +81,14 @@ export async function getUsdRate(
       .limit(1);
 
     if (result.length > 0) {
-      return parseFloat(result[0].rate);
+      rate = parseFloat(result[0].rate);
     }
   }
 
-  return null;
+  // Cache the result if found
+  if (rate !== null) {
+    await setInCache(cacheKey, rate, { ttl: 86400 });
+  }
+
+  return rate;
 }

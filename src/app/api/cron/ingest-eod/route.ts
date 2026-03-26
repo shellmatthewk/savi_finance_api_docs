@@ -6,7 +6,9 @@ import { withIngestionRetry, RetryError } from '@/lib/retry';
 import { recordProviderSuccess, recordProviderFailure } from '@/lib/providerHealth';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Allow up to 60 seconds for data fetching
+// maxDuration must accommodate retry delays: 1min + 5min = 6min+
+// Vercel Pro/Enterprise max is 300s, so we reduce delays for serverless environment
+export const maxDuration = 300; // Allow up to 300 seconds (Vercel Pro limit)
 
 /**
  * Verify the request is from Vercel Cron
@@ -76,12 +78,9 @@ async function fetchFiatRates(): Promise<RateData[]> {
 
     await recordProviderSuccess('fiat');
   } catch (error) {
-    if (error instanceof RetryError) {
-      const failures = await recordProviderFailure('fiat', error.lastError);
-      console.error(`[FIAT] All retries exhausted. Consecutive failures: ${failures}`);
-    } else {
-      console.error('Fiat fetch error:', error);
-    }
+    const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
+    const failures = await recordProviderFailure('fiat', failureError);
+    console.error(`[FIAT] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
   }
 
   return rateData;
@@ -122,12 +121,9 @@ async function fetchCryptoRates(): Promise<RateData[]> {
 
     await recordProviderSuccess('crypto');
   } catch (error) {
-    if (error instanceof RetryError) {
-      const failures = await recordProviderFailure('crypto', error.lastError);
-      console.error(`[CRYPTO] All retries exhausted. Consecutive failures: ${failures}`);
-    } else {
-      console.error('Crypto fetch error:', error);
-    }
+    const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
+    const failures = await recordProviderFailure('crypto', failureError);
+    console.error(`[CRYPTO] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
   }
 
   return rateData;
@@ -164,12 +160,9 @@ async function fetchStockRates(): Promise<RateData[]> {
 
     await recordProviderSuccess('stocks');
   } catch (error) {
-    if (error instanceof RetryError) {
-      const failures = await recordProviderFailure('stocks', error.lastError);
-      console.error(`[STOCKS] All retries exhausted. Consecutive failures: ${failures}`);
-    } else {
-      console.error('Stock fetch error:', error);
-    }
+    const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
+    const failures = await recordProviderFailure('stocks', failureError);
+    console.error(`[STOCKS] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
   }
 
   return rateData;
@@ -200,12 +193,9 @@ async function fetchMetalRates(): Promise<RateData[]> {
 
     await recordProviderSuccess('metals');
   } catch (error) {
-    if (error instanceof RetryError) {
-      const failures = await recordProviderFailure('metals', error.lastError);
-      console.error(`[METALS] All retries exhausted. Consecutive failures: ${failures}`);
-    } else {
-      console.error('Metals fetch error:', error);
-    }
+    const failureError = error instanceof RetryError ? error.lastError : (error instanceof Error ? error : new Error(String(error)));
+    const failures = await recordProviderFailure('metals', failureError);
+    console.error(`[METALS] Provider failure. Consecutive failures: ${failures}`, { error: failureError.message });
   }
 
   return rateData;

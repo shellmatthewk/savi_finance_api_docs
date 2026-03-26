@@ -4,6 +4,7 @@ import { rateLimitMiddleware, createRateLimitHeaders, checkRateLimit } from '@/l
 import { getSymbolsByAssetClass, getAssetClassSummary } from '@/db/queries/rates';
 import { logUsage } from '@/db/queries/usage';
 import type { AssetClass } from '@/db/schema';
+import { getFromCache, setInCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,6 +62,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // Generate cache key based on asset class
+    const cacheKey = assetClassParam ? `assets:${assetClassParam}` : 'assets:all';
+
+    // Check cache first
+    const cachedResponse = await getFromCache<AssetsResponse>(cacheKey);
+    if (cachedResponse) {
+      logUsage(auth.apiKeyId, auth.userId, '/api/v1/assets').catch(console.error);
+      const surrogateKey = assetClassParam ? `assets-${assetClassParam}` : 'assets-all';
+      const headers = {
+        ...createRateLimitHeaders(rateLimitInfo),
+        'X-Cache': 'HIT',
+        'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
+        'Vary': 'x-api-key',
+        'Surrogate-Key': surrogateKey,
+      };
+      return NextResponse.json(cachedResponse, { headers });
+    }
+
     // Fetch data
     const assetClasses: AssetsResponse['asset_classes'] = [];
     let totalSymbols = 0;
@@ -102,10 +121,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     };
 
+    // Cache the response for 24 hours
+    await setInCache(cacheKey, response, { ttl: 86400 });
+
     // Edge cache for 24 hours with stale-while-revalidate
     const surrogateKey = assetClassParam ? `assets-${assetClassParam}` : 'assets-all';
     const headers = {
       ...createRateLimitHeaders(rateLimitInfo),
+      'X-Cache': 'MISS',
       'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
       'Vary': 'x-api-key',
       'Surrogate-Key': surrogateKey,
@@ -119,9 +142,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('Assets API error:', errorMessage, errorStack);
-    return NextResponse.json(
-      { error: 'Internal server error', details: errorMessage },
-      { status: 500 }
-    );
+    const response: { error: string; details?: string } = { error: 'Internal server error' };
+    if (process.env.NODE_ENV !== 'production') {
+      response.details = errorMessage;
+    }
+    return NextResponse.json(response, { status: 500 });
   }
 }

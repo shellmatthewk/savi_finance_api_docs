@@ -122,10 +122,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Validate date param early if provided
-    let parsedDate: Date | undefined;
+    // Validate and normalize date param early if provided
+    let normalizedDate: string | undefined;
     if (dateParam) {
-      parsedDate = new Date(dateParam);
+      const parsedDate = new Date(dateParam);
       if (isNaN(parsedDate.getTime())) {
         return NextResponse.json(
           {
@@ -135,6 +135,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           { status: 400, headers: createRateLimitHeaders(rateLimitInfo) }
         );
       }
+      // Normalize date to YYYY-MM-DD format
+      normalizedDate = parsedDate.toISOString().split('T')[0];
     }
 
     // Fetch rates for each symbol with graceful degradation
@@ -152,7 +154,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Use resilient data access with graceful degradation
       const { data: rate, source, degraded, degradedReason } = await getRateResilient(
         symbol,
-        dateParam ?? undefined
+        normalizedDate ?? undefined
       );
 
       if (!rate) {
@@ -253,10 +255,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('Rates API error:', errorMessage);
-    return NextResponse.json(
-      { error: 'Internal server error', details: errorMessage },
-      { status: 500 }
-    );
+    const response: { error: string; details?: string } = { error: 'Internal server error' };
+    if (process.env.NODE_ENV !== 'production') {
+      response.details = errorMessage;
+    }
+    return NextResponse.json(response, { status: 500 });
   }
 }
 
@@ -290,6 +293,7 @@ async function handleCrossRateRequest(
   const cacheKey = `triangulated:${base}:${quote}:${date || 'latest'}`;
   const cached = await getFromCache<TriangulatedRateResponse>(cacheKey);
   if (cached) {
+    incrementCacheHit().catch(console.error);
     const response = {
       ...cached,
       meta: { ...cached.meta, cache: 'HIT' as const },
@@ -298,6 +302,8 @@ async function handleCrossRateRequest(
       headers: createRateLimitHeaders(rateLimitInfo),
     });
   }
+
+  incrementCacheMiss().catch(console.error);
 
   // Fetch USD rates for both currencies
   const [usdToBase, usdToQuote] = await Promise.all([
