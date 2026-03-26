@@ -337,12 +337,12 @@ export function recordServiceSuccess(service: string): void {
 
 ## Acceptance Criteria
 
-- [ ] API returns 200 with degraded flag when Redis is down
-- [ ] API returns 200 with degraded flag when DB is down (using cache)
-- [ ] API returns 503 (not 500) when both are down
-- [ ] Health endpoint shows individual service status
-- [ ] Circuit breaker prevents repeated calls to failed services
-- [ ] Zero 500 errors from infrastructure issues
+- [x] API returns 200 with degraded flag when Redis is down
+- [x] API returns 200 with degraded flag when DB is down (using cache)
+- [x] API returns 503 (not 500) when both are down
+- [x] Health endpoint shows individual service status
+- [x] Circuit breaker prevents repeated calls to failed services
+- [x] Zero 500 errors from infrastructure issues
 
 ---
 

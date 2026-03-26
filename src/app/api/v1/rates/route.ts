@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { authenticateApiKey } from '@/lib/authenticateApiKey';
-import { rateLimitMiddleware, createRateLimitHeaders, checkRateLimit } from '@/lib/rateLimit';
-import { getLatestRate, getRates } from '@/db/queries/rates';
+import { rateLimitMiddleware, createRateLimitHeaders, checkRateLimit, type RateLimitResult } from '@/lib/rateLimit';
+// Removed unused imports: getLatestRate, getRates (now using getRateWithFallback)
 import { logUsage } from '@/db/queries/usage';
 import {
   getFromCache,
@@ -18,6 +18,7 @@ import {
 } from '@/lib/triangulation';
 import { getSupportedSymbols, getUsdRate } from '@/lib/rates';
 import { getRateWithFallback, logStaleDataUsage, incrementStaleDataCount } from '@/lib/staleData';
+import { getRateResilient } from '@/lib/resilientData';
 
 export const dynamic = 'force-dynamic';
 
@@ -136,64 +137,58 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Fetch rates for each symbol with cache-aside pattern and stale fallback
+    // Fetch rates for each symbol with graceful degradation
     const rates: RateResponse[] = [];
     const notFound: string[] = [];
     let allCacheHits = true;
+    let hasServiceDegradation = false;
+    let degradationReason: string | undefined;
     const staleMetadata: Record<
       string,
-      { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string | null }
+      { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string | null; degraded?: boolean; degradedReason?: string }
     > = {};
 
     for (const symbol of symbols) {
       const cacheKey = ratesCacheKey(symbol, dateParam ?? undefined);
 
-      // Check cache first
-      const cachedRate = await getFromCache<RateResponse>(cacheKey);
-      if (cachedRate) {
-        rates.push(cachedRate);
-        continue;
-      }
-
-      // Cache miss - fetch from database with stale fallback
-      allCacheHits = false;
-      const { data: rate, stale, staleReason, dataAge, originalDate } = await getRateWithFallback(
+      // Use resilient data access with graceful degradation
+      const { data: rate, source, degraded, degradedReason } = await getRateResilient(
         symbol,
         dateParam ?? undefined
       );
 
-      if (rate) {
-        const rateResponse: RateResponse = {
-          symbol: rate.symbol,
-          rate: rate.rate,
-          base_currency: rate.baseCurrency,
-          asset_class: rate.assetClass,
-          date: originalDate || rate.recordedDate,
-          delayed_by: '24h',
-        };
-        rates.push(rateResponse);
-
-        // Store stale metadata for response
-        staleMetadata[symbol] = {
-          stale: stale || false,
-          ...(stale && {
-            staleReason,
-            dataAge,
-            requestedDate: dateParam,
-          }),
-        };
-
-        // Log stale data usage if needed
-        if (stale && staleReason && originalDate && dateParam) {
-          logStaleDataUsage(symbol, dateParam, originalDate, staleReason);
-          await incrementStaleDataCount(symbol).catch(console.error);
-        }
-
-        // Cache the result
-        await setInCache(cacheKey, rateResponse);
-      } else {
+      if (!rate) {
         notFound.push(symbol);
+        continue;
       }
+
+      if (source !== 'cache') {
+        allCacheHits = false;
+      }
+
+      if (degraded) {
+        hasServiceDegradation = true;
+        degradationReason = degradationReason || degradedReason;
+      }
+
+      const rateResponse: RateResponse = {
+        symbol: rate.symbol,
+        rate: rate.rate,
+        base_currency: rate.baseCurrency,
+        asset_class: rate.assetClass,
+        date: rate.recordedDate,
+        delayed_by: '24h',
+      };
+      rates.push(rateResponse);
+
+      // Store degradation metadata
+      staleMetadata[symbol] = {
+        stale: false,
+        ...(degraded && {
+          degraded: true,
+          degradedReason,
+        }),
+      };
     }
 
     // Track cache stats
@@ -201,6 +196,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       incrementCacheHit().catch(console.error);
     } else {
       incrementCacheMiss().catch(console.error);
+    }
+
+    // If all symbols not found and services degraded, return 503
+    if (rates.length === 0 && hasServiceDegradation) {
+      logUsage(auth.apiKeyId, auth.userId, '/api/v1/rates').catch(console.error);
+      return NextResponse.json(
+        {
+          error: 'Service temporarily unavailable',
+          degraded: true,
+          reason: degradationReason || 'Data services unavailable',
+        },
+        { status: 503, headers: createRateLimitHeaders(rateLimitInfo) }
+      );
     }
 
     // Log usage (async, don't await)
@@ -211,7 +219,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       not_found?: string[];
       meta?: {
         cache: 'HIT' | 'MISS';
-        stale_by_symbol?: Record<string, { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string | null }>;
+        degraded?: boolean;
+        degradation_reason?: string;
+        stale_by_symbol?: Record<string, { stale: boolean; staleReason?: string; dataAge?: number; requestedDate?: string }>;
         timestamp: string;
       };
     } = { data: rates };
@@ -220,18 +230,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       response.not_found = notFound;
     }
 
-    // Include metadata with stale information if applicable
-    const hasStaleData = Object.values(staleMetadata).some((m) => m.stale);
+    // Include metadata with degradation information if applicable
+    const hasDegradedData = Object.values(staleMetadata).some((m) => m.degraded);
     response.meta = {
       cache: allCacheHits && rates.length > 0 ? 'HIT' : 'MISS',
-      ...(hasStaleData && { stale_by_symbol: staleMetadata }),
+      ...(hasServiceDegradation && { degraded: true, degradation_reason: degradationReason }),
+      ...(hasDegradedData && { stale_by_symbol: staleMetadata }),
       timestamp: new Date().toISOString(),
     };
 
     const headers = {
       ...createRateLimitHeaders(rateLimitInfo),
       'X-Cache': allCacheHits && rates.length > 0 ? 'HIT' : 'MISS',
-      'X-Stale': hasStaleData ? 'true' : 'false',
+      'X-Degraded': hasServiceDegradation ? 'true' : 'false',
       'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
       'Vary': 'x-api-key',
       'Surrogate-Key': symbols.length === 1 ? `rates-${symbols[0]}` : 'rates-batch',
@@ -254,7 +265,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 async function handleCrossRateRequest(
   symbol: string,
   searchParams: URLSearchParams,
-  rateLimitInfo: any
+  rateLimitInfo: RateLimitResult
 ): Promise<NextResponse> {
   const parsed = parseCrossPair(symbol);
   if (!parsed) {

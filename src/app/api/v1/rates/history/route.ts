@@ -11,6 +11,7 @@ import {
   incrementCacheHit,
   incrementCacheMiss,
 } from '@/lib/cache';
+import { getServiceHealth } from '@/lib/resilientData';
 
 export const dynamic = 'force-dynamic';
 
@@ -192,48 +193,79 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // Cache miss - fetch from database
+    // Cache miss - fetch from database with degradation handling
     incrementCacheMiss().catch(console.error);
-    const rates = await getRates(symbol, fromDate, toDate);
 
-    if (rates.length === 0) {
-      return NextResponse.json(
-        {
-          error: 'No data found',
-          message: `No historical data found for symbol "${symbol}" in the specified date range`,
+    try {
+      const rates = await getRates(symbol, fromDate, toDate);
+
+      if (rates.length === 0) {
+        // Check if services are available
+        const health = getServiceHealth();
+        if (!health.database) {
+          return NextResponse.json(
+            {
+              error: 'Service temporarily unavailable',
+              degraded: true,
+              reason: 'Database unavailable',
+            },
+            { status: 503, headers: createRateLimitHeaders(rateLimitInfo) }
+          );
+        }
+
+        return NextResponse.json(
+          {
+            error: 'No data found',
+            message: `No historical data found for symbol "${symbol}" in the specified date range`,
+          },
+          { status: 404, headers: createRateLimitHeaders(rateLimitInfo) }
+        );
+      }
+
+      // Log usage (async, don't await)
+      logUsage(auth.apiKeyId, auth.userId, '/api/v1/rates/history').catch(console.error);
+
+      const response: HistoryResponse = {
+        symbol: rates[0].symbol,
+        base_currency: rates[0].baseCurrency,
+        asset_class: rates[0].assetClass,
+        from: fromDateStr,
+        to: toDateStr,
+        history: rates.map((r) => ({
+          date: r.recordedDate,
+          rate: r.rate,
+        })),
+        delayed_by: '24h',
+      };
+
+      // Cache the response
+      await setInCache(cacheKey, response);
+
+      return NextResponse.json(response, {
+        headers: {
+          ...createRateLimitHeaders(rateLimitInfo),
+          'X-Cache': 'MISS',
+          'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
+          'Vary': 'x-api-key',
+          'Surrogate-Key': `rates-history-${symbol}`,
         },
-        { status: 404, headers: createRateLimitHeaders(rateLimitInfo) }
-      );
+      });
+    } catch (dbError) {
+      // Database error - check if it's availability issue
+      const health = getServiceHealth();
+      if (!health.database) {
+        logUsage(auth.apiKeyId, auth.userId, '/api/v1/rates/history').catch(console.error);
+        return NextResponse.json(
+          {
+            error: 'Service temporarily unavailable',
+            degraded: true,
+            reason: 'Database unavailable',
+          },
+          { status: 503, headers: createRateLimitHeaders(rateLimitInfo) }
+        );
+      }
+      throw dbError;
     }
-
-    // Log usage (async, don't await)
-    logUsage(auth.apiKeyId, auth.userId, '/api/v1/rates/history').catch(console.error);
-
-    const response: HistoryResponse = {
-      symbol: rates[0].symbol,
-      base_currency: rates[0].baseCurrency,
-      asset_class: rates[0].assetClass,
-      from: fromDateStr,
-      to: toDateStr,
-      history: rates.map((r) => ({
-        date: r.recordedDate,
-        rate: r.rate,
-      })),
-      delayed_by: '24h',
-    };
-
-    // Cache the response
-    await setInCache(cacheKey, response);
-
-    return NextResponse.json(response, {
-      headers: {
-        ...createRateLimitHeaders(rateLimitInfo),
-        'X-Cache': 'MISS',
-        'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=3600',
-        'Vary': 'x-api-key',
-        'Surrogate-Key': `rates-history-${symbol}`,
-      },
-    });
   } catch (error) {
     if (error instanceof NextResponse) {
       return error;
