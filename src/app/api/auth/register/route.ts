@@ -5,6 +5,9 @@ import { createUser, getUserByEmail } from '@/db/queries/users';
 import { upsertSubscription } from '@/db/queries/subscriptions';
 import { createApiKey } from '@/db/queries/api-keys';
 import { signJWT, setSessionCookie } from '@/lib/auth';
+import { checkAuthRateLimit, resetAuthRateLimit } from '@/lib/authRateLimit';
+import { emailSchema, passwordSchema } from '@/lib/validation';
+import { createSafeLogger } from '@/lib/logging';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +46,9 @@ function hashApiKey(key: string): string {
  * - One API key (shown once in response)
  */
 export async function POST(request: Request): Promise<NextResponse<RegisterResponse | { error: string }>> {
+  const logger = createSafeLogger('Register');
+  const ip = request.headers.get('x-forwarded-for') || request.headers.get('cf-connecting-ip') || 'unknown';
+
   try {
     const body = await request.json() as RegisterRequest;
     const { email, password } = body;
@@ -55,16 +61,47 @@ export async function POST(request: Request): Promise<NextResponse<RegisterRespo
       );
     }
 
-    if (password.length < 8) {
+    // Validate email format
+    try {
+      emailSchema.parse(email);
+    } catch (error) {
       return NextResponse.json(
-        { error: 'Password must be at least 8 characters' },
+        { error: 'Invalid email format' },
         { status: 400 }
+      );
+    }
+
+    // Validate password strength
+    try {
+      passwordSchema.parse(password);
+    } catch (error) {
+      const zodError = error as any;
+      const message = zodError.errors?.[0]?.message || 'Password does not meet requirements';
+      return NextResponse.json(
+        { error: message },
+        { status: 400 }
+      );
+    }
+
+    // Check rate limit by IP
+    const rateLimit = await checkAuthRateLimit(ip);
+    if (!rateLimit.allowed) {
+      logger.warn({ message: 'Register rate limit exceeded', ip });
+      return NextResponse.json(
+        { error: 'Too many registration attempts. Please try again later.' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimit.retryAfter || 3600),
+          },
+        }
       );
     }
 
     // Check if email already exists
     const existingUser = await getUserByEmail(email);
     if (existingUser) {
+      logger.warn({ message: 'Registration failed - email already exists', email: '[REDACTED]' });
       return NextResponse.json(
         { error: 'An account with this email already exists' },
         { status: 409 }
@@ -102,6 +139,11 @@ export async function POST(request: Request): Promise<NextResponse<RegisterRespo
     const token = await signJWT({ userId: user.id, plan: 'sandbox' });
     await setSessionCookie(token);
 
+    // Reset rate limit on successful registration
+    await resetAuthRateLimit(ip);
+
+    logger.info({ message: 'Registration successful', userId: user.id });
+
     return NextResponse.json({
       userId: user.id,
       email: user.email,
@@ -109,7 +151,7 @@ export async function POST(request: Request): Promise<NextResponse<RegisterRespo
       apiKey: rawApiKey,
     }, { status: 201 });
   } catch (error) {
-    console.error('Registration error:', error);
+    logger.error(error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { error: 'Failed to create account', details: errorMessage },
