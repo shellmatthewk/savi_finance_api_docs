@@ -1,0 +1,314 @@
+openapi: 3.0.3
+info:
+  title: VaultLine API
+  description: |
+    Real-time and historical financial data API covering fiat currencies,
+    cryptocurrencies, stocks, and precious metals.
+  version: 1.0.0
+  contact:
+    name: VaultLine Support
+    email: support@vaultline.io
+
+servers:
+  - url: https://api.vaultline.io/api/v1
+    description: Production
+  - url: http://localhost:3000/api/v1
+    description: Development
+
+security:
+  - BearerAuth: []
+
+paths:
+  /rates:
+    get:
+      summary: Get current rates
+      description: |
+        Returns the current exchange rates for one or more symbols.
+        Supports direct rates (e.g., EUR) and cross-rates (e.g., EUR/JPY).
+      parameters:
+        - name: symbols
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated list of symbols (e.g., "EUR,BTC/USD,AAPL")
+          examples:
+            single:
+              value: EUR
+              summary: Single symbol
+            multiple:
+              value: EUR,BTC/USD,AAPL
+              summary: Multiple symbols
+            cross:
+              value: EUR/JPY
+              summary: Cross rate
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Historical date (YYYY-MM-DD). Omit for current rates.
+      responses:
+        '200':
+          description: Successful response with rates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RatesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /rates/history:
+    get:
+      summary: Get historical rates
+      description: Returns rate history for a symbol over a date range.
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Single symbol (e.g., EUR, BTC/USD)
+          example: EUR
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: Start date (YYYY-MM-DD)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: End date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Successful response with historical data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /assets:
+    get:
+      summary: List supported assets
+      description: Returns all supported symbols grouped by asset class.
+      parameters:
+        - name: asset_class
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [fiat, crypto, stocks, metals]
+          description: Optional filter by asset class
+      responses:
+        '200':
+          description: Successful response with assets list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from authentication
+
+  schemas:
+    Rate:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: EUR
+        rate:
+          type: number
+          example: 0.92
+        date:
+          type: string
+          format: date
+          example: '2024-03-15'
+      required:
+        - symbol
+        - rate
+
+    RateWithMeta:
+      allOf:
+        - $ref: '#/components/schemas/Rate'
+        - type: object
+          properties:
+            meta:
+              type: object
+              properties:
+                triangulated:
+                  type: boolean
+                  description: Whether this is a triangulated cross-rate
+                stale:
+                  type: boolean
+                  description: Whether data is older than 1 hour
+                cache:
+                  type: string
+                  enum: [HIT, MISS]
+                  description: Cache status for this request
+
+    RatesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateWithMeta'
+      required:
+        - data
+
+    HistoryResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: EUR
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/Rate'
+      required:
+        - symbol
+        - history
+
+    Asset:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: EUR
+        name:
+          type: string
+          example: Euro
+        class:
+          type: string
+          enum: [fiat, crypto, stocks, metals]
+          example: fiat
+      required:
+        - symbol
+        - name
+        - class
+
+    AssetsResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          example: 150
+        assetClasses:
+          type: array
+          items:
+            type: string
+          example: [fiat, crypto, stocks, metals]
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Asset'
+      required:
+        - count
+        - assetClasses
+        - assets
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Invalid symbol
+        code:
+          type: string
+          example: INVALID_SYMBOL
+        message:
+          type: string
+      required:
+        - error
+        - code
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Missing required parameter
+            code: MISSING_SYMBOL
+
+    Unauthorized:
+      description: Invalid or missing authorization token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Invalid or expired token
+            code: UNAUTHORIZED
+
+    NotFound:
+      description: Symbol or resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Symbol not supported
+            code: SYMBOL_NOT_FOUND
+
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Rate limit ceiling for the request
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Remaining requests in current window
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+          description: Time when the rate limit resets (Unix timestamp)
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Rate limit exceeded
+            code: RATE_LIMITED
