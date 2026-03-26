@@ -4,6 +4,13 @@ import { rateLimitMiddleware, createRateLimitHeaders, checkRateLimit } from '@/l
 import { getRates } from '@/db/queries/rates';
 import { logUsage } from '@/db/queries/usage';
 import type { Plan } from '@/db/schema';
+import {
+  getFromCache,
+  setInCache,
+  historyRatesCacheKey,
+  incrementCacheHit,
+  incrementCacheMiss,
+} from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -151,7 +158,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Fetch historical rates
+    // Generate cache key for this query
+    const fromDateStr = fromDate.toISOString().split('T')[0];
+    const toDateStr = toDate.toISOString().split('T')[0];
+    const cacheKey = historyRatesCacheKey(symbol, fromDateStr, toDateStr);
+
+    // Check cache first
+    const cachedResponse = await getFromCache<HistoryResponse>(cacheKey);
+    if (cachedResponse) {
+      // Log usage (async, don't await)
+      logUsage(auth.apiKeyId, auth.userId, '/api/v1/rates/history').catch(console.error);
+      incrementCacheHit().catch(console.error);
+
+      return NextResponse.json(cachedResponse, {
+        headers: {
+          ...createRateLimitHeaders(rateLimitInfo),
+          'X-Cache': 'HIT',
+        },
+      });
+    }
+
+    // Cache miss - fetch from database
+    incrementCacheMiss().catch(console.error);
     const rates = await getRates(symbol, fromDate, toDate);
 
     if (rates.length === 0) {
@@ -171,8 +199,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       symbol: rates[0].symbol,
       base_currency: rates[0].baseCurrency,
       asset_class: rates[0].assetClass,
-      from: fromDate.toISOString().split('T')[0],
-      to: toDate.toISOString().split('T')[0],
+      from: fromDateStr,
+      to: toDateStr,
       history: rates.map((r) => ({
         date: r.recordedDate,
         rate: r.rate,
@@ -180,8 +208,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       delayed_by: '24h',
     };
 
+    // Cache the response
+    await setInCache(cacheKey, response);
+
     return NextResponse.json(response, {
-      headers: createRateLimitHeaders(rateLimitInfo),
+      headers: {
+        ...createRateLimitHeaders(rateLimitInfo),
+        'X-Cache': 'MISS',
+      },
     });
   } catch (error) {
     if (error instanceof NextResponse) {

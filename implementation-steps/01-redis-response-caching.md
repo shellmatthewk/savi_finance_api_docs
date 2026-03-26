@@ -149,11 +149,11 @@ export async function getCacheStats(): Promise<{
 
 ## Acceptance Criteria
 
-- [ ] `getFromCache` and `setInCache` functions work correctly
-- [ ] Rate endpoint returns `X-Cache: HIT` on repeated requests
-- [ ] Cache TTL is set to 24 hours
-- [ ] Cache stats are being tracked
-- [ ] No regression in existing functionality
+- [x] `getFromCache` and `setInCache` functions work correctly
+- [x] Rate endpoint returns `X-Cache: HIT` on repeated requests
+- [x] Cache TTL is set to 24 hours
+- [x] Cache stats are being tracked
+- [x] No regression in existing functionality
 
 ---
 
