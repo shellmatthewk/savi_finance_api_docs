@@ -17,13 +17,45 @@ function generateEdgeCacheKey(request: NextRequest): string {
   return `${url.pathname}?${params.toString()}`;
 }
 
+/**
+ * Track API request metrics in Redis (non-blocking)
+ */
+async function trackApiMetrics(request: NextRequest, responseTime: number): Promise<void> {
+  try {
+    const { getRedis, isRedisConfigured } = await import('@/lib/redis');
+    const redis = getRedis();
+    if (!redis || !isRedisConfigured()) return;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Non-blocking: fire and forget
+    Promise.all([
+      redis.incr('stats:api:total'),
+      redis.incr(`stats:api:daily:${today}`),
+      redis.incrby('stats:api:totaltime', Math.round(responseTime)),
+      redis.incr('stats:api:count'),
+    ]).catch((error) => {
+      console.error('Failed to track API metrics:', error);
+    });
+  } catch (error) {
+    // Silently fail to avoid blocking request
+    console.error('Failed to initialize metrics tracking:', error);
+  }
+}
+
 export function middleware(request: NextRequest) {
+  const startTime = Date.now();
+
   // Only apply to v1 API routes
   if (!request.nextUrl.pathname.startsWith('/api/v1/')) {
     return NextResponse.next();
   }
 
   const response = NextResponse.next();
+
+  // Track metrics (non-blocking)
+  const responseTime = Date.now() - startTime;
+  trackApiMetrics(request, responseTime);
 
   // Enable edge caching for rate and asset endpoints
   if (

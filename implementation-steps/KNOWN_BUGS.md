@@ -278,6 +278,52 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 10: Alert Integration
+
+### Bug: Incorrect Circuit Breaker Condition Logic (High)
+**File:** `src/lib/resilientData.ts` (line 264)
+**Issue:** Double negation `!isCircuitOpen('database') === false && !isCircuitOpen('redis')` is semantically incorrect. Intended: both circuits open for stale fallback.
+**Impact:** Stale fallback triggers incorrectly
+**Fix:** Change to `isCircuitOpen('database') && !isCircuitOpen('redis')` for correct fallback logic.
+
+### Bug: Unbounded Map Growth - staleAlerts (High)
+**File:** `src/lib/staleData.ts` (lines 18-19)
+**Issue:** `staleAlerts` Map tracks alert times per symbol with no cleanup mechanism. Entries never expire.
+**Impact:** Memory leak in long-running applications with many symbols
+**Fix:** Implement TTL-based expiration or periodic cleanup.
+
+### Issue: Race Condition in Cache Alert Cooldown (Medium)
+**File:** `src/lib/cacheMonitor.ts` (lines 12-31)
+**Issue:** Concurrent calls can both pass cooldown check before either updates `lastAlertTime`.
+**Impact:** Duplicate alerts during cache failures
+**Fix:** Use atomic check-and-set or mutex for cooldown.
+
+### Issue: Race Condition in Stale Alert Cooldown (Medium)
+**File:** `src/lib/staleData.ts` (lines 93-100)
+**Issue:** Same race condition as cache monitor - concurrent requests can trigger duplicate alerts.
+**Impact:** Duplicate stale data alerts
+**Fix:** Use atomic operations for cooldown tracking.
+
+### Issue: Weak Type Safety in Summary Endpoint (Medium)
+**File:** `src/app/api/admin/alerts/summary/route.ts` (lines 19-23)
+**Issue:** Response interface uses `unknown` type for detail fields, weakening TypeScript safety.
+**Impact:** API consumers must cast types, unclear contract
+**Fix:** Define proper interfaces for each detail type.
+
+### Issue: Silent Cache Write Failures (Low)
+**File:** `src/lib/resilientData.ts` (line 234)
+**Issue:** `.catch(() => {})` silently suppresses all cache write errors with no logging.
+**Impact:** Cache failures invisible, difficult debugging
+**Fix:** Log errors even if not rethrowing.
+
+### Gap: Retry Delay May Exceed maxDuration (Low)
+**File:** `src/app/api/cron/ingest-eod/route.ts` (lines 10-12)
+**Issue:** Retry delays (1min + 5min = 6min+) can exceed Vercel maxDuration (300s/5min).
+**Impact:** Function timeout during retries
+**Fix:** Reduce retry delays or increase maxDuration.
+
+---
+
 ## Legend
 
 | Severity | Description |

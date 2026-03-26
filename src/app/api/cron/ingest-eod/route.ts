@@ -5,6 +5,7 @@ import { invalidateRatesCache, purgeEdgeCache } from '@/lib/cache';
 import { withIngestionRetry, RetryError } from '@/lib/retry';
 import { recordProviderSuccess, recordProviderFailure } from '@/lib/providerHealth';
 import { sendAlert, Alerts } from '@/lib/alerts';
+import { fetchMetalRatesWithFallback } from '@/lib/providers/metals';
 
 export const dynamic = 'force-dynamic';
 // maxDuration must accommodate retry delays: 1min + 5min = 6min+
@@ -172,28 +173,22 @@ async function fetchStockRates(): Promise<RateData[]> {
   return rateData;
 }
 
-async function fetchMetalRates(): Promise<RateData[]> {
+async function ingestMetalRates(): Promise<RateData[]> {
   const today = getToday();
   const rateData: RateData[] = [];
 
   try {
-    await withIngestionRetry('metals', async () => {
-      // Use fallback values for MVP (metals APIs often require paid access)
-      const fallbackRates = [
-        { symbol: 'XAU/USD', rate: '2340.50' },
-        { symbol: 'XAG/USD', rate: '27.45' },
-        { symbol: 'XPT/USD', rate: '985.00' },
-      ];
+    const metalRates = await fetchMetalRatesWithFallback();
 
-      for (const metal of fallbackRates) {
-        rateData.push({
-          assetClass: 'metals',
-          ...metal,
-          baseCurrency: 'USD',
-          recordedDate: today,
-        });
-      }
-    });
+    for (const metal of metalRates) {
+      rateData.push({
+        assetClass: 'metals',
+        symbol: `${metal.symbol}/USD`,
+        rate: String(metal.rate),
+        baseCurrency: 'USD',
+        recordedDate: today,
+      });
+    }
 
     await recordProviderSuccess('metals');
   } catch (error) {
@@ -225,7 +220,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       fetchFiatRates(),
       fetchCryptoRates(),
       fetchStockRates(),
-      fetchMetalRates(),
+      ingestMetalRates(),
     ]);
 
     const allRates = [...fiatRates, ...cryptoRates, ...stockRates, ...metalRates];
