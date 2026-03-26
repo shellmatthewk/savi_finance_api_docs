@@ -392,6 +392,104 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 13: Asset Expansion
+
+### Issue: Inconsistent Asset Symbol Formats (Medium)
+**File:** `src/data/assets.ts` (lines 75-96, 101-125)
+**Issue:** Crypto assets use `SYMBOL/USD` format (e.g., `BTC/USD`) while stock symbols are plain (e.g., `AAPL`). This inconsistency could cause confusion.
+**Impact:** Users may be confused about which format to use when querying
+**Fix:** Document the format difference clearly in API responses or standardize formats.
+
+### Issue: Linear Search Performance for Asset Lookup (Low)
+**File:** `src/data/assets.ts` (lines 138-154)
+**Issue:** `getAsset()`, `getAssetsByClass()`, `isAssetSupported()` use linear array searches (O(n)).
+**Impact:** Minimal now but could become noticeable with hundreds of assets
+**Fix:** Consider creating a `Map<string, Asset>` index for O(1) lookups.
+
+### Gap: No Validation Against Data Registry in API (Low)
+**File:** `src/app/api/v1/assets/route.ts` (lines 83-109)
+**Issue:** `/api/v1/assets` fetches from database but never validates against `assets.ts` registry.
+**Impact:** Registry in `assets.ts` may drift from actual database values
+**Fix:** Either use registry as source of truth or remove it if database is authoritative.
+
+### Issue: Duplicate Client IP Extraction Logic (Low)
+**File:** `src/app/api/admin/assets/route.ts` (lines 8-11, 20-23, 55-58)
+**Issue:** Same IP extraction logic repeated three times in same file.
+**Impact:** Code duplication, harder to maintain
+**Fix:** Extract to a helper function or use shared utility.
+
+---
+
+## Step 14: Security Audit
+
+### Bug: Race Condition in Rate Limit Implementation (High)
+**File:** `src/lib/authRateLimit.ts` (lines 39-45)
+**Issue:** `incr` and `expire` operations are not atomic. Key may exist forever without TTL if process crashes.
+**Impact:** Attacker could exploit race condition to exceed limits; keys without TTL accumulate
+**Fix:** Use Lua script for atomic increment-with-expiry or MULTI/EXEC transaction.
+
+### Bug: Rate Limit Reset Does Not Clear Block Key (Medium)
+**File:** `src/lib/authRateLimit.ts` (lines 72-84)
+**Issue:** `resetAuthRateLimit()` only deletes attempts key, not block key (`auth:blocked:*`).
+**Impact:** Blocked users cannot recover even after successful login flow
+**Fix:** Also delete block key: `await redis.del(ratelimitKey, blockedKey)`.
+
+### Issue: Fail-Open Rate Limiting (Medium)
+**File:** `src/lib/authRateLimit.ts` (lines 62-66)
+**Issue:** When Redis fails, rate limiter returns `{ allowed: true }` - disables all protection.
+**Impact:** Attacker could DoS Redis to disable rate limiting, then brute-force
+**Fix:** Implement in-memory fallback or consider fail-closed for auth endpoints.
+
+### Issue: Shallow Sanitization in Logging (Medium)
+**File:** `src/lib/logging.ts` (lines 28-44)
+**Issue:** Sanitization doesn't recurse into nested objects - `{ user: { password: 'secret' } }` not redacted.
+**Impact:** Sensitive data in nested objects could leak to logs
+**Fix:** Implement recursive sanitization with depth limit.
+
+### Issue: Error Details Exposed in Production for Register (Medium)
+**File:** `src/app/api/auth/register/route.ts` (lines 155-159)
+**Issue:** Returns `details: errorMessage` without checking `NODE_ENV`.
+**Impact:** Information disclosure - attackers learn internal implementation details
+**Fix:** Add production check before including error details.
+
+### Gap: Missing CSRF Protection (High)
+**File:** `src/app/api/auth/login/route.ts`, `src/app/api/auth/register/route.ts`
+**Issue:** Auth endpoints don't implement CSRF protection. Vulnerable to Cross-Site Request Forgery.
+**Impact:** Attacker could trick users into submitting requests from malicious site
+**Fix:** Implement CSRF tokens or use `SameSite=Strict` on session cookies.
+
+### Gap: Missing Origin/Referer Validation (Medium)
+**File:** `src/middleware.ts`
+**Issue:** Middleware adds security headers but doesn't validate Origin/Referer for state-changing requests.
+**Impact:** Increases CSRF vulnerability combined with missing CSRF protection
+**Fix:** Add origin validation for non-GET requests to auth endpoints.
+
+### Issue: CSP Too Permissive with unsafe-inline (Medium)
+**File:** `src/middleware.ts` (lines 55-58)
+**Issue:** Content-Security-Policy includes `'unsafe-inline'` for scripts and styles.
+**Impact:** If XSS exists, attackers can execute inline scripts despite CSP
+**Fix:** Use nonces/hashes for legitimate inline scripts, or document why necessary.
+
+### Gap: Missing Request Body Size Limit (Medium)
+**File:** `src/app/api/auth/login/route.ts`, `src/app/api/auth/register/route.ts`
+**Issue:** No validation of request body size before parsing JSON.
+**Impact:** Attacker could send huge payloads causing memory exhaustion (DoS)
+**Fix:** Add body size validation or configure Next.js body parser limits.
+
+### Issue: Type Safety - Using any Type (Low)
+**File:** `src/app/api/auth/register/route.ts` (line 78)
+**Issue:** `const zodError = error as any;` bypasses TypeScript type safety.
+**Impact:** Potential runtime errors if error structure unexpected
+**Fix:** Use proper Zod error typing with `instanceof ZodError`.
+
+### Gap: No Account Lockout Notification (Low)
+**File:** `src/lib/authRateLimit.ts`
+**Issue:** No mechanism to notify legitimate account owner of brute-force attempts.
+**Impact:** Users unaware of potential attacks on their accounts
+**Fix:** Send email notification when account is blocked.
+
+---
+
 ## Legend
 
 | Severity | Description |
