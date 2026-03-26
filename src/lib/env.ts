@@ -53,6 +53,25 @@ export const env = {
   get FINANCIAL_DATA_API_KEY() {
     return getEnvVar('FINANCIAL_DATA_API_KEY', false); // Optional for now
   },
+
+  // Admin authentication
+  get ADMIN_API_KEY() {
+    return getEnvVar('ADMIN_API_KEY', false); // Optional
+  },
+
+  // Alerting
+  get SLACK_WEBHOOK_URL() {
+    return getEnvVar('SLACK_WEBHOOK_URL', false); // Optional
+  },
+  get PAGERDUTY_KEY() {
+    return getEnvVar('PAGERDUTY_KEY', false); // Optional
+  },
+  get ALERT_EMAIL_TO() {
+    return getEnvVar('ALERT_EMAIL_TO', false); // Optional
+  },
+  get ALERT_EMAIL_FROM() {
+    return getEnvVar('ALERT_EMAIL_FROM', false); // Optional
+  },
 } as const;
 
 /**

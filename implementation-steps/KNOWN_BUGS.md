@@ -214,6 +214,70 @@ Tracking issues discovered during implementation for future fixes.
 
 ---
 
+## Step 09: Alert Service
+
+### Bug: Missing Timeout on External API Calls (High)
+**File:** `src/lib/alerts.ts` (lines 82, 117)
+**Issue:** Fetch calls to Slack and PagerDuty lack timeout configuration. If services are slow/unresponsive, requests hang indefinitely.
+**Impact:** Server resource exhaustion, unresponsive alert system, cascading failures
+**Fix:** Add AbortController with 5s timeout to fetch calls.
+
+### Bug: Weak JSON Serialization in Context (Medium)
+**File:** `src/lib/alerts.ts` (lines 70-74)
+**Issue:** Context values use `String(value)` which produces `[object Object]` for nested objects and can fail on circular references.
+**Impact:** Lost context information, difficult debugging
+**Fix:** Use `JSON.stringify()` with replacer function for proper serialization.
+
+### Issue: No Validation of Webhook URLs (Medium)
+**File:** `src/lib/alerts.ts` (lines 20-21)
+**Issue:** Webhook URLs read from env vars with no validation. Malformed URLs only fail at runtime.
+**Impact:** Failed alerts without early detection
+**Fix:** Validate URLs at module load using URL constructor.
+
+### Issue: Silent Failure of Alert Transmission (Medium)
+**File:** `src/lib/alerts.ts` (lines 88-93, 123-128)
+**Issue:** Non-2xx responses only log to console. No retry logic, no alerting about failed alerts. `Promise.allSettled` masks failures.
+**Impact:** Critical alerts may silently fail to deliver
+**Fix:** Log full response bodies, implement retries, optionally throw errors.
+
+### Issue: No Rate Limiting on Alert Sends (Medium)
+**File:** `src/lib/alerts.ts`
+**Issue:** No deduplication or rate limiting. A bug could trigger thousands of duplicate alerts.
+**Impact:** Alert fatigue, service disruption, potential account lockouts
+**Fix:** Implement alert deduplication based on title+message hash with time window.
+
+### Issue: Config Evaluated at Module Load, Not Runtime
+**File:** `src/lib/alerts.ts` (lines 19-24)
+**Issue:** Config object created once at module load. Env var changes require server restart.
+**Impact:** Cannot update alert configuration dynamically, difficult testing
+**Fix:** Use lazy evaluation with getConfig() function.
+
+### Gap: Unused Email Configuration
+**File:** `src/lib/alerts.ts` (lines 22-23)
+**Issue:** Email config variables read but never used. Email alerting not implemented.
+**Impact:** Dead code, maintenance burden, unclear feature status
+**Fix:** Implement email alerting or document as future feature.
+
+### Issue: Incomplete PagerDuty Severity Mapping
+**File:** `src/lib/alerts.ts` (line 108)
+**Issue:** Raw severity passed to PagerDuty. PagerDuty expects specific values ('critical', 'error', 'warning', 'info').
+**Impact:** Wrong severity levels, incorrect incident prioritization
+**Fix:** Add explicit severity mapping for PagerDuty.
+
+### Gap: No Alert Deduplication or State Tracking
+**File:** `src/lib/alerts.ts`
+**Issue:** No mechanism to prevent duplicate alerts for same condition. Repeated errors spam channels.
+**Impact:** Alert fatigue, important signals lost in noise
+**Fix:** Implement deduplication cache tracking recent alerts by hash.
+
+### Gap: Alert Channels Not Validated at Startup
+**File:** `src/lib/env.ts`
+**Issue:** No startup validation that at least one alert channel is configured.
+**Impact:** Application could start with zero alerting, ops team unaware
+**Fix:** Add startup warning if no alert channels configured.
+
+---
+
 ## Legend
 
 | Severity | Description |

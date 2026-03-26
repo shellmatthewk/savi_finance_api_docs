@@ -1,21 +1,3 @@
-# Step 09: Alert Service Setup
-
-## Goal
-Create a unified alerting service for critical system events.
-
-## Prerequisites
-- None (independent module)
-
----
-
-## Tasks
-
-### Task 9.1: Create Alert Service
-Create `src/lib/alerts.ts` with unified interface.
-
-```typescript
-// src/lib/alerts.ts
-
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export type AlertChannel = 'slack' | 'email' | 'pagerduty';
 
@@ -38,7 +20,7 @@ const config: AlertConfig = {
   slackWebhookUrl: process.env.SLACK_WEBHOOK_URL,
   pagerdutyKey: process.env.PAGERDUTY_KEY,
   emailTo: process.env.ALERT_EMAIL_TO,
-  emailFrom: process.env.ALERT_EMAIL_FROM
+  emailFrom: process.env.ALERT_EMAIL_FROM,
 };
 
 /**
@@ -47,7 +29,7 @@ const config: AlertConfig = {
 export async function sendAlert(alert: Alert): Promise<void> {
   const fullAlert = {
     ...alert,
-    timestamp: alert.timestamp || new Date().toISOString()
+    timestamp: alert.timestamp || new Date().toISOString(),
   };
 
   console.log('[ALERT]', fullAlert);
@@ -76,7 +58,7 @@ async function sendSlackAlert(alert: Alert): Promise<void> {
   const color = {
     info: '#36a64f',
     warning: '#ffcc00',
-    critical: '#ff0000'
+    critical: '#ff0000',
   }[alert.severity];
 
   const payload = {
@@ -88,19 +70,19 @@ async function sendSlackAlert(alert: Alert): Promise<void> {
         fields: Object.entries(alert.context || {}).map(([key, value]) => ({
           title: key,
           value: String(value),
-          short: true
+          short: true,
         })),
         footer: 'FinFlux API Alerts',
-        ts: Math.floor(new Date(alert.timestamp!).getTime() / 1000)
-      }
-    ]
+        ts: Math.floor(new Date(alert.timestamp!).getTime() / 1000),
+      },
+    ],
   };
 
   try {
     const response = await fetch(config.slackWebhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -126,16 +108,16 @@ async function sendPagerDutyAlert(alert: Alert): Promise<void> {
       severity: alert.severity,
       custom_details: {
         message: alert.message,
-        ...alert.context
-      }
-    }
+        ...alert.context,
+      },
+    },
   };
 
   try {
     const response = await fetch('https://events.pagerduty.com/v2/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -150,17 +132,13 @@ function severityEmoji(severity: AlertSeverity): string {
   return {
     info: 'ℹ️',
     warning: '⚠️',
-    critical: '🚨'
+    critical: '🚨',
   }[severity];
 }
-```
 
-### Task 9.2: Create Predefined Alerts
-Add common alert templates.
-
-```typescript
-// Add to src/lib/alerts.ts
-
+/**
+ * Predefined alert templates
+ */
 export const Alerts = {
   ingestionFailure(
     provider: string,
@@ -174,8 +152,8 @@ export const Alerts = {
       context: {
         provider,
         consecutiveFailures,
-        action: 'Check provider API status and logs'
-      }
+        action: 'Check provider API status and logs',
+      },
     };
   },
 
@@ -187,8 +165,8 @@ export const Alerts = {
       context: {
         currentHitRate: `${(hitRate * 100).toFixed(1)}%`,
         threshold: `${threshold}%`,
-        action: 'Check cache warming and invalidation'
-      }
+        action: 'Check cache warming and invalidation',
+      },
     };
   },
 
@@ -199,8 +177,8 @@ export const Alerts = {
       severity: 'critical',
       context: {
         service,
-        action: `Check ${service} logs and infrastructure`
-      }
+        action: `Check ${service} logs and infrastructure`,
+      },
     };
   },
 
@@ -212,8 +190,8 @@ export const Alerts = {
       context: {
         endpoint,
         errorRate: `${(errorRate * 100).toFixed(1)}%`,
-        action: 'Check endpoint logs for errors'
-      }
+        action: 'Check endpoint logs for errors',
+      },
     };
   },
 
@@ -225,93 +203,8 @@ export const Alerts = {
       context: {
         symbol,
         daysOld,
-        action: 'Check ingestion for this symbol'
-      }
+        action: 'Check ingestion for this symbol',
+      },
     };
-  }
+  },
 };
-```
-
-### Task 9.3: Add Environment Variables
-Update `.env.example` with alert configuration.
-
-```bash
-# Add to .env.example
-
-# Alerting Configuration
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
-PAGERDUTY_KEY=your-pagerduty-integration-key
-ALERT_EMAIL_TO=alerts@yourcompany.com
-ALERT_EMAIL_FROM=finflux-api@yourcompany.com
-```
-
-### Task 9.4: Create Alert Test Endpoint
-
-```typescript
-// Create src/app/api/admin/alerts/test/route.ts
-import { NextResponse } from 'next/server';
-import { sendAlert, Alerts } from '@/lib/alerts';
-import { verifyAdminAuth } from '@/lib/auth';
-
-export async function POST(request: Request) {
-  const authResult = await verifyAdminAuth(request);
-  if (!authResult.success) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // Send test alert
-  await sendAlert({
-    title: 'Test Alert',
-    message: 'This is a test alert from FinFlux API',
-    severity: 'info',
-    context: {
-      triggeredBy: 'Admin test endpoint'
-    }
-  });
-
-  return NextResponse.json({
-    success: true,
-    message: 'Test alert sent to configured channels'
-  });
-}
-```
-
----
-
-## Files to Create/Modify
-
-| Action | File |
-|--------|------|
-| Create | `src/lib/alerts.ts` |
-| Create | `src/app/api/admin/alerts/test/route.ts` |
-| Modify | `.env.example` |
-
----
-
-## Acceptance Criteria
-
-- [x] `sendAlert` sends to Slack webhook
-- [x] Critical alerts also go to PagerDuty
-- [x] Predefined alert templates available
-- [x] Test endpoint sends alert successfully
-- [x] Alert failures don't crash the application
-
----
-
-## Testing
-
-```bash
-# Set up Slack webhook (get from Slack workspace settings)
-# Add SLACK_WEBHOOK_URL to .env.local
-
-# Test alert endpoint
-curl -X POST "http://localhost:3000/api/admin/alerts/test" \
-  -H "Authorization: Bearer ADMIN_TOKEN"
-
-# Verify alert received in Slack
-```
-
----
-
-## Next Step
-Proceed to `10-alert-integration.md`
