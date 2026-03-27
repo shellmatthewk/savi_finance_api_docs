@@ -191,7 +191,7 @@ export default function PrivacyPage() {
 
             {/* Section 9 */}
             <section className="space-y-4">
-              <h2 className="text-2xl font-bold text-foreground">9. Children's Privacy</h2>
+              <h2 className="text-2xl font-bold text-foreground">9. Children&apos;s Privacy</h2>
               <div className="space-y-3 text-foreground/80">
                 <p>
                   VaultLine is not intended for users under 13 years old. We do not knowingly collect personal information from children. If we become aware that a child has provided us with personal information, we will delete it immediately.

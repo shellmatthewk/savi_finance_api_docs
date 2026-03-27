@@ -9,11 +9,6 @@ if (dsn) {
     environment,
     // Set a lower sample rate for production to avoid high costs
     tracesSampleRate: environment === 'production' ? 0.1 : 1.0,
-    // Capture performance monitoring for API routes
-    integrations: [
-      new Sentry.Integrations.OnUncaughtException(),
-      new Sentry.Integrations.OnUnhandledRejection(),
-    ],
     beforeSend(event, hint) {
       // Don't send 404 errors
       if (event.request?.url?.includes('/404')) {
@@ -38,13 +33,3 @@ if (dsn) {
     },
   });
 }
-
-// Capture unhandled errors
-process.on('unhandledRejection', (reason, promise) => {
-  Sentry.captureException(new Error(`Unhandled Rejection at ${promise}: ${reason}`));
-});
-
-process.on('uncaughtException', (error) => {
-  Sentry.captureException(error);
-  process.exit(1);
-});

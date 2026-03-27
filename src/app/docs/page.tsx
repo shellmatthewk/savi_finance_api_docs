@@ -3,11 +3,11 @@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Link from "next/link";
-import { Copy, Check, Code, Play, ExternalLink, BookOpen, Zap } from "lucide-react";
+import { Copy, Check, Code, Play, BookOpen, Zap } from "lucide-react";
 import { useState } from "react";
 import { codeExamples, planComparison, errorCodes } from "@/data/codeExamples";
 
-function CodeBlock({ code, title, language = "bash" }: { code: string; title?: string; language?: string }) {
+function CodeBlock({ code, title, language: _language = "bash" }: { code: string; title?: string; language?: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -144,26 +144,6 @@ class VaultLine:
             "from": from_date,
             "to": to_date,
         })`;
-
-const exampleGetAssets = `from vaultline import VaultLine
-
-client = VaultLine(
-    "vl_your_api_key",
-    base_url="https://savifinanceapi.vercel.app/api/v1"
-)
-
-assets = client.get_assets()
-print(assets)`;
-
-const exampleGetRates = `from vaultline import VaultLine
-
-client = VaultLine(
-    "vl_your_api_key",
-    base_url="https://savifinanceapi.vercel.app/api/v1"
-)
-
-rates = client.get_rates(["BTC/USD", "ETH/USD"])
-print(rates)`;
 
 const sidebarItems = [
   { id: "quickstart", label: "Quick Start", icon: BookOpen },

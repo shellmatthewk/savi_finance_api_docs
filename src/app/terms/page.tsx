@@ -116,7 +116,7 @@ export default function TermsPage() {
                   TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW:
                 </p>
                 <ul className="list-disc list-inside space-y-2 ml-2">
-                  <li>VaultLine's total liability to you shall not exceed the amount paid for the Service in the past 12 months</li>
+                  <li>VaultLine&apos;s total liability to you shall not exceed the amount paid for the Service in the past 12 months</li>
                   <li>VaultLine is not liable for indirect, incidental, special, consequential, or punitive damages</li>
                   <li>VaultLine is not liable for damages from inaccurate data, service interruptions, or data loss</li>
                   <li>VaultLine is not liable for third-party services or data providers</li>
